@@ -30,11 +30,13 @@ export class ControllerToggle {
     // button's own background colour so they read as holes in any state.
     this.element.innerHTML = `
       <button class="btn btn-icon controller-toggle" aria-pressed="false" aria-label="Controller input">
-        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-          <path fill="currentColor" d="M6 7h12c3.3 0 5.5 2.7 5.5 5.6 0 2.3-1.3 4.4-3.3 4.4-1.2 0-2-.7-2.7-1.6L16.7 14H7.3l-.8 1.4c-.7.9-1.5 1.6-2.7 1.6C1.8 17 .5 14.9.5 12.6.5 9.7 2.7 7 6 7z"/>
-          <path fill="var(--toggle-bg)" d="M6.7 9.3h1.6v1.4h1.4v1.6H8.3v1.4H6.7v-1.4H5.3v-1.6h1.4z"/>
-          <circle fill="var(--toggle-bg)" cx="16" cy="10.7" r="1"/>
-          <circle fill="var(--toggle-bg)" cx="18.4" cy="12.6" r="1"/>
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+          <path fill="currentColor" d="M7.2 4.8C9 4.2 15 4.2 16.8 4.8c2.2.6 3.7 2.7 4.8 6.2 1 3.2 1.2 6.4-.4 7.9-1.3 1.2-3.2.7-4.2-.9-.8-1.3-1.5-2.4-2.6-2.6H9.6c-1.1.2-1.8 1.3-2.6 2.6-1 1.6-2.9 2.1-4.2.9-1.6-1.5-1.4-4.7-.4-7.9C3.5 7.5 5 5.4 7.2 4.8z"/>
+          <path fill="var(--toggle-bg)" d="M7 8.7h1.2v1.2h1.2v1.2H8.2v1.2H7v-1.2H5.8V9.9H7z"/>
+          <circle fill="var(--toggle-bg)" cx="16.4" cy="8.9" r=".8"/>
+          <circle fill="var(--toggle-bg)" cx="18.1" cy="10.5" r=".8"/>
+          <circle fill="var(--toggle-bg)" cx="16.4" cy="12.1" r=".8"/>
+          <circle fill="var(--toggle-bg)" cx="14.7" cy="10.5" r=".8"/>
         </svg>
       </button>
       <div class="controller-picker hidden">

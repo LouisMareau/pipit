@@ -153,12 +153,14 @@ await evaluate("document.querySelector('.rom-main').click(); true");
 await sleep(4000);
 
 const fps = await evaluate("document.querySelector('.toolbar-fps').textContent");
-// No controller in a headless browser: the toggle renders gray but clickable.
+// Usually no controller is plugged in: the toggle renders gray but clickable.
+// With one connected it must be green instead, and the picker must list it.
+const pads = await evaluate("Array.from(navigator.getGamepads()).filter(Boolean).map((p) => p.id)");
 const controller = await evaluate(`(() => {
   const b = document.querySelector('.controller-toggle');
   return b ? { present: true, active: b.classList.contains('active'), disabled: b.disabled } : { present: false };
 })()`);
-console.log(`controller toggle: ${JSON.stringify(controller)}`);
+console.log(`controllers: ${JSON.stringify(pads)}; toggle: ${JSON.stringify(controller)}`);
 
 // Holding the toggle for two seconds opens the controller picker without toggling.
 const toggleBox = await evaluate(`(() => {
@@ -235,10 +237,10 @@ if (
   savedToast !== "State 1 saved" ||
   loadedToast !== "State 1 loaded" ||
   !controller.present ||
-  controller.active ||
+  controller.active !== pads.length > 0 ||
   controller.disabled ||
   !picker.open ||
-  picker.options[0] !== "No controller detected"
+  (pads.length === 0 ? picker.options[0] !== "No controller detected" : picker.options.length !== pads.length)
 ) {
   console.error("SMOKE TEST FAILED");
   process.exit(1);
