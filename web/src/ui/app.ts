@@ -10,6 +10,7 @@ import type { ControllerMapping, RomEntry, Settings, TouchLayout } from "../type
 import { DEFAULT_KEYBOARD, DEFAULT_MAPPING, STATE_SLOTS } from "../types";
 import { ControllerSettings } from "./controller-settings";
 import { ControllerToggle } from "./controller-toggle";
+import { icon } from "./icons";
 import { KeyboardSettings } from "./keyboard-settings";
 import { Library } from "./library";
 import { Screen } from "./screen";
@@ -44,15 +45,15 @@ export class App {
       Array.from({ length: STATE_SLOTS }, (_, i) => `<button class="btn" data-action="${action}" data-slot="${i + 1}">${i + 1}</button>`).join("");
     this.player.innerHTML = `
       <div class="toolbar">
-        <button class="btn btn-icon" data-action="back" title="Library">‹</button>
+        <button class="btn btn-icon" data-action="back" title="Library" aria-label="Library">${icon("back")}</button>
         <span class="toolbar-title"></span>
         <span class="toolbar-fps muted small"></span>
         <span class="toolbar-spacer"></span>
         <span class="toolbar-controller"></span>
-        <button class="btn btn-icon" data-action="pause" title="Pause (P)">❚❚</button>
-        <button class="btn btn-icon" data-action="fast" title="Fast-forward (hold Space)">»</button>
-        <button class="btn btn-icon" data-action="shot" title="Screenshot">📷</button>
-        <button class="btn btn-icon" data-action="menu" title="More">⋯</button>
+        <button class="btn btn-icon" data-action="pause" title="Pause" aria-label="Pause">${icon("pause")}</button>
+        <button class="btn btn-icon" data-action="fast" title="Fast-forward" aria-label="Fast-forward">${icon("fastForward")}</button>
+        <button class="btn btn-icon" data-action="shot" title="Screenshot" aria-label="Screenshot">${icon("camera")}</button>
+        <button class="btn btn-icon" data-action="menu" title="More" aria-label="More">${icon("more")}</button>
       </div>
       <div class="screen-box"></div>
       <div class="menu hidden">

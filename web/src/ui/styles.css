@@ -80,6 +80,12 @@ body {
   font-size: 18px;
   line-height: 1;
   flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.btn-icon svg {
+  display: block;
 }
 
 .btn.active {
@@ -548,10 +554,21 @@ select {
   min-width: 0;
 }
 
+/* A/B fill a box the height of the D-pad, staggered symmetrically around its
+   centre, so the pair's centre lines up with the D-pad's. */
 .touch-ab {
+  height: calc(var(--touch-size) * 2.3);
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.tbtn-b {
+  transform: translateY(calc(var(--touch-size) * 0.18));
+}
+
+.tbtn-a {
+  transform: translateY(calc(var(--touch-size) * -0.18));
 }
 
 .touch-system {
@@ -653,10 +670,6 @@ select {
   width: var(--touch-size);
   height: var(--touch-size);
   border-radius: 50%;
-}
-
-.tbtn-b {
-  margin-top: 26px;
 }
 
 .tbtn-shoulder {

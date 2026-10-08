@@ -7,6 +7,7 @@
 import type { Capture } from "../platform/input";
 import type { ControllerMapping, KeyName } from "../types";
 import { DEFAULT_MAPPING, GAMEPAD_BUTTON_NAMES, KEY_NAMES } from "../types";
+import { icon } from "./icons";
 
 const LABELS: Record<KeyName, string> = {
   A: "A",
@@ -38,7 +39,7 @@ export class ControllerSettings {
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="controller-settings-title">
         <header class="modal-header">
           <h2 id="controller-settings-title">Controller settings</h2>
-          <button class="btn btn-icon" data-action="close" aria-label="Close">✕</button>
+          <button class="btn btn-icon" data-action="close" aria-label="Close">${icon("close")}</button>
         </header>
         <p class="muted small controller-name"></p>
         <div class="mapping"></div>

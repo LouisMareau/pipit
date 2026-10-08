@@ -7,6 +7,7 @@ import type { Capture } from "../platform/input";
 import { keyLabel } from "../platform/input";
 import type { KeyboardAction, KeyboardMapping } from "../types";
 import { DEFAULT_KEYBOARD, KEYBOARD_ACTIONS } from "../types";
+import { icon } from "./icons";
 
 const LABELS: Record<KeyboardAction, string> = {
   A: "A",
@@ -41,7 +42,7 @@ export class KeyboardSettings {
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="keyboard-settings-title">
         <header class="modal-header">
           <h2 id="keyboard-settings-title">Keyboard settings</h2>
-          <button class="btn btn-icon" data-action="close" aria-label="Close">✕</button>
+          <button class="btn btn-icon" data-action="close" aria-label="Close">${icon("close")}</button>
         </header>
         <p class="muted small">Click Change, then press the key you want. Esc cancels.</p>
         <div class="mapping"></div>

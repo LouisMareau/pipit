@@ -273,11 +273,17 @@ for (const [name, width, height] of [
     const touch = document.querySelector('.touch');
     const widest = Math.max(...Array.from(document.querySelectorAll('.player *')).map((e) => e.getBoundingClientRect().right));
     const [l, r] = Array.from(document.querySelectorAll('.tbtn-shoulder')).map((e) => Math.round(e.getBoundingClientRect().top));
+    const centre = (sel) => { const b = document.querySelector(sel).getBoundingClientRect(); return (b.top + b.bottom) / 2; };
+    const a = document.querySelector('.tbtn-a').getBoundingClientRect();
+    const bb = document.querySelector('.tbtn-b').getBoundingClientRect();
+    const abCentre = (Math.min(a.top, bb.top) + Math.max(a.bottom, bb.bottom)) / 2;
     return {
       layout: player.dataset.layout,
       touchShown: getComputedStyle(touch).display !== 'none',
       overflow: Math.round(Math.max(document.documentElement.scrollWidth, widest) - window.innerWidth),
       shoulderMisalignment: Math.abs(l - r),
+      groupMisalignment: Math.round(Math.abs(centre('.dpad') - abCentre)),
+      toolbarIcons: document.querySelectorAll('.toolbar svg').length,
     };
   })()`);
   if (process.env.PIPIT_SMOKE_PHONE_SHOTS) {
@@ -324,7 +330,10 @@ if (
   phone.portrait.overflow > 0 ||
   phone.landscape.overflow > 0 ||
   phone.portrait.shoulderMisalignment > 1 ||
-  phone.landscape.shoulderMisalignment > 1
+  phone.landscape.shoulderMisalignment > 1 ||
+  phone.portrait.groupMisalignment > 1 ||
+  phone.landscape.groupMisalignment > 1 ||
+  phone.portrait.toolbarIcons < 6
 ) {
   console.error("SMOKE TEST FAILED");
   process.exit(1);
