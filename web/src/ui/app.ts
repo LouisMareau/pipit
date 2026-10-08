@@ -148,11 +148,20 @@ export class App {
 
   private wireEmulator() {
     this.emulator.on("loaded", () => this.emulator.run());
-    this.emulator.on("frame", (pixels, audio, fps) => {
+    const fpsLabel = this.player.querySelector<HTMLElement>(".toolbar-fps")!;
+    let lastFpsText = "";
+    this.emulator.on("frame", (pixels, audio, fps, maxGapMs) => {
       this.screen.draw(pixels);
       this.emulator.returnFrame(pixels);
       this.audio.push(new Int16Array(audio));
-      this.player.querySelector(".toolbar-fps")!.textContent = `${fps} fps`;
+      const text = `${fps} fps`;
+      if (text !== lastFpsText) {
+        fpsLabel.textContent = text;
+        lastFpsText = text;
+      }
+      // Worst frame-to-frame gap of the last second, for spotting stutter.
+      fpsLabel.dataset["maxGap"] = String(maxGapMs);
+      fpsLabel.title = `longest pause between frames in the last second: ${maxGapMs} ms`;
     });
     this.emulator.on("save", (data) => {
       this.latestSave = data;

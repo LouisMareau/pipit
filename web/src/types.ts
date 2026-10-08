@@ -34,7 +34,8 @@ export type ToWorker =
 
 export type FromWorker =
   | { type: "loaded"; title: string; gameCode: string }
-  | { type: "frame"; pixels: ArrayBuffer; audio: ArrayBuffer; fps: number }
+  /** `maxGapMs`: the longest pause between frames in the last second (stutter diagnostics). */
+  | { type: "frame"; pixels: ArrayBuffer; audio: ArrayBuffer; fps: number; maxGapMs: number }
   | { type: "save"; data: ArrayBuffer }
   | { type: "state"; slot: number; data: ArrayBuffer }
   | { type: "error"; message: string };
@@ -49,21 +50,42 @@ export interface RomEntry {
   lastPlayed: number;
 }
 
-/** Which controller button (Gamepad API index) drives each GBA key. */
+/** GBA keys in the order the remapping screens list them. */
+export const KEY_NAMES: KeyName[] = ["A", "B", "L", "R", "Start", "Select", "Up", "Down", "Left", "Right"];
+
+/** Emulator actions that keys and controller buttons can drive besides GBA keys. */
+export type EmulatorAction = "FastForward" | "Rewind" | "Pause";
+export const EMULATOR_ACTIONS: EmulatorAction[] = ["FastForward", "Rewind", "Pause"];
+
+/** Everything a controller button can be bound to. */
+export type ControllerAction = KeyName | EmulatorAction;
+export const CONTROLLER_ACTIONS: ControllerAction[] = [...KEY_NAMES, ...EMULATOR_ACTIONS];
+
+/** Which controller button (Gamepad API index) drives each action. */
 export interface ControllerMapping {
-  buttons: Partial<Record<KeyName, number>>;
+  buttons: Partial<Record<ControllerAction, number>>;
   /** The left stick also works as the D-pad. */
   stickDpad: boolean;
 }
 
 /** Standard-mapping defaults (Xbox / PlayStation / Switch Pro all follow it). */
 export const DEFAULT_MAPPING: ControllerMapping = {
-  buttons: { A: 0, B: 1, L: 4, R: 5, Select: 8, Start: 9, Up: 12, Down: 13, Left: 14, Right: 15 },
+  buttons: {
+    A: 0,
+    B: 1,
+    L: 4,
+    R: 5,
+    Select: 8,
+    Start: 9,
+    Up: 12,
+    Down: 13,
+    Left: 14,
+    Right: 15,
+    FastForward: 7, // RT / R2
+    Rewind: 6, // LT / L2
+  },
   stickDpad: true,
 };
-
-/** GBA keys in the order the remapping screen lists them. */
-export const KEY_NAMES: KeyName[] = ["A", "B", "L", "R", "Start", "Select", "Up", "Down", "Left", "Right"];
 
 /** Human names for standard-mapping button indices. */
 export const GAMEPAD_BUTTON_NAMES: Record<number, string> = {
@@ -87,12 +109,12 @@ export const GAMEPAD_BUTTON_NAMES: Record<number, string> = {
 };
 
 /** Everything a keyboard key can be bound to: GBA keys plus emulator actions. */
-export type KeyboardAction = KeyName | "FastForward" | "Rewind" | "Pause";
+export type KeyboardAction = KeyName | EmulatorAction;
 
 /** Keyboard binding per action, as `KeyboardEvent.code` values ("" = unbound). */
 export type KeyboardMapping = Record<KeyboardAction, string>;
 
-export const KEYBOARD_ACTIONS: KeyboardAction[] = [...KEY_NAMES, "FastForward", "Rewind", "Pause"];
+export const KEYBOARD_ACTIONS: KeyboardAction[] = [...KEY_NAMES, ...EMULATOR_ACTIONS];
 
 export const DEFAULT_KEYBOARD: KeyboardMapping = {
   A: "KeyZ",

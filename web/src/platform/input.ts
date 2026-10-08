@@ -7,10 +7,11 @@
 // exposes a pad after a button is pressed on it). One pad is *active* at a time
 // and contributes only while controller input is enabled; the keyboard always
 // works. The first pad detected switches controller input on automatically.
-// Each pad reads through a mapping (GBA key → button index) that the user can
-// change in the controller settings.
+// Each pad reads through a mapping (action → button index) that the user can
+// change in the controller settings; emulator actions (fast-forward, rewind,
+// pause) are bindable there too.
 
-import type { ControllerMapping, KeyboardAction, KeyboardMapping, KeyName } from "../types";
+import type { ControllerAction, ControllerMapping, KeyboardAction, KeyboardMapping, KeyName } from "../types";
 import { DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key } from "../types";
 
 export interface GamepadInfo {
@@ -85,6 +86,10 @@ export class Input {
   private keyboardMap = new Map<string, KeyboardAction>();
   private buttonCapture: { resolve: (button: number | null) => void; previous: boolean[] } | null = null;
   private keyCapture: ((code: string | null) => void) | null = null;
+  // Held state of the controller-driven emulator actions, for edge detection.
+  private padFastForward = false;
+  private padRewind = false;
+  private padPause = false;
   onChange: (keys: number) => void = () => {};
   onFastForward: (held: boolean) => void = () => {};
   onRewind: (held: boolean) => void = () => {};
@@ -194,15 +199,13 @@ export class Input {
 
   setMapping(mapping: ControllerMapping) {
     this.mapping = mapping;
-    this.gamepad = 0;
-    this.emit();
+    this.resetGamepadState();
   }
 
   /** Switches controller input on or off without forgetting the active pad. */
   setGamepadEnabled(enabled: boolean) {
     this.enabled = enabled && this.active !== null;
-    this.gamepad = 0;
-    this.emit();
+    this.resetGamepadState();
     this.onGamepads(this.gamepadState());
   }
 
@@ -211,8 +214,7 @@ export class Input {
     if (!this.detected.some((p) => p.index === index)) return;
     this.active = index;
     this.enabled = true;
-    this.gamepad = 0;
-    this.emit();
+    this.resetGamepadState();
     this.onGamepads(this.gamepadState());
   }
 
@@ -227,8 +229,7 @@ export class Input {
     let resolve!: (button: number | null) => void;
     const promise = new Promise<number | null>((r) => (resolve = r));
     this.buttonCapture = { resolve, previous };
-    this.gamepad = 0;
-    this.emit();
+    this.resetGamepadState();
     return {
       promise,
       cancel: () => {
@@ -238,6 +239,25 @@ export class Input {
         }
       },
     };
+  }
+
+  /** Releases everything the controller was holding. */
+  private resetGamepadState() {
+    this.gamepad = 0;
+    this.emit();
+    this.setPadAction("FastForward", false);
+    this.setPadAction("Rewind", false);
+    this.padPause = false;
+  }
+
+  private setPadAction(action: "FastForward" | "Rewind", held: boolean) {
+    if (action === "FastForward" && this.padFastForward !== held) {
+      this.padFastForward = held;
+      this.onFastForward(held);
+    } else if (action === "Rewind" && this.padRewind !== held) {
+      this.padRewind = held;
+      this.onRewind(held);
+    }
   }
 
   /** Re-reads the list of controllers and keeps the active choice consistent. */
@@ -262,8 +282,7 @@ export class Input {
     }
     if (detected.length === 0) {
       this.enabled = false;
-      this.gamepad = 0;
-      this.emit();
+      this.resetGamepadState();
       this.stopPolling();
     } else {
       this.startPolling();
@@ -292,9 +311,25 @@ export class Input {
       }
 
       let keys = 0;
+      let fastForward = false;
+      let rewind = false;
+      let pause = false;
       if (this.enabled) {
-        for (const [name, index] of Object.entries(this.mapping.buttons) as [KeyName, number][]) {
-          if (pad.buttons[index]?.pressed) keys |= Key[name];
+        for (const [action, index] of Object.entries(this.mapping.buttons) as [ControllerAction, number][]) {
+          if (!pad.buttons[index]?.pressed) continue;
+          switch (action) {
+            case "FastForward":
+              fastForward = true;
+              break;
+            case "Rewind":
+              rewind = true;
+              break;
+            case "Pause":
+              pause = true;
+              break;
+            default:
+              keys |= Key[action as KeyName];
+          }
         }
         if (this.mapping.stickDpad) {
           const [x = 0, y = 0] = pad.axes;
@@ -308,6 +343,10 @@ export class Input {
         this.gamepad = keys;
         this.emit();
       }
+      this.setPadAction("FastForward", fastForward);
+      this.setPadAction("Rewind", rewind);
+      if (pause && !this.padPause) this.onPause();
+      this.padPause = pause;
     };
     this.pollTimer = requestAnimationFrame(poll);
   }

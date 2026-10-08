@@ -1,15 +1,15 @@
 // Controller settings: a modal over the game for remapping buttons.
 //
-// Each GBA key shows the controller button driving it; "Change" waits for the
-// next press on the controller. Changes apply immediately and are saved per
-// controller model.
+// Each GBA key and emulator action (fast-forward, rewind, pause) shows the
+// controller button driving it; "Change" waits for the next press on the
+// controller. Changes apply immediately and are saved per controller model.
 
 import type { Capture } from "../platform/input";
-import type { ControllerMapping, KeyName } from "../types";
-import { DEFAULT_MAPPING, GAMEPAD_BUTTON_NAMES, KEY_NAMES } from "../types";
+import type { ControllerAction, ControllerMapping } from "../types";
+import { CONTROLLER_ACTIONS, DEFAULT_MAPPING, GAMEPAD_BUTTON_NAMES } from "../types";
 import { icon } from "./icons";
 
-const LABELS: Record<KeyName, string> = {
+const LABELS: Record<ControllerAction, string> = {
   A: "A",
   B: "B",
   L: "L",
@@ -20,13 +20,16 @@ const LABELS: Record<KeyName, string> = {
   Down: "D-pad down",
   Left: "D-pad left",
   Right: "D-pad right",
+  FastForward: "Fast-forward (hold)",
+  Rewind: "Rewind (hold)",
+  Pause: "Pause",
 };
 
 export class ControllerSettings {
   readonly element: HTMLDivElement;
   private mapping: ControllerMapping = DEFAULT_MAPPING;
   private capture: Capture<number> | null = null;
-  private capturing: KeyName | null = null;
+  private capturing: ControllerAction | null = null;
   onChange: (mapping: ControllerMapping) => void = () => {};
   onClose: () => void = () => {};
   /** Supplied by the app: starts listening for the next controller button. */
@@ -68,7 +71,11 @@ export class ControllerSettings {
           this.render();
           break;
         case "change":
-          void this.changeKey(button.dataset["key"] as KeyName);
+          void this.changeAction(button.dataset["key"] as ControllerAction);
+          break;
+        case "clear":
+          this.cancelCapture();
+          this.unbind(button.dataset["key"] as ControllerAction);
           break;
         case "cancel":
           this.cancelCapture();
@@ -105,23 +112,31 @@ export class ControllerSettings {
     this.onClose();
   }
 
-  private async changeKey(key: KeyName) {
+  private async changeAction(action: ControllerAction) {
     this.cancelCapture();
-    this.capturing = key;
+    this.capturing = action;
     this.render();
     this.capture = this.captureButton();
     const button = await this.capture.promise;
-    if (this.capturing !== key) return; // cancelled or superseded
+    if (this.capturing !== action) return; // cancelled or superseded
     this.capturing = null;
     this.capture = null;
     if (button !== null) {
       const buttons = { ...this.mapping.buttons };
-      // A controller button drives one GBA key: unassign it elsewhere.
-      for (const other of KEY_NAMES) if (buttons[other] === button) delete buttons[other];
-      buttons[key] = button;
+      // A controller button drives one action: unassign it elsewhere.
+      for (const other of CONTROLLER_ACTIONS) if (buttons[other] === button) delete buttons[other];
+      buttons[action] = button;
       this.mapping = { ...this.mapping, buttons };
       this.onChange(this.mapping);
     }
+    this.render();
+  }
+
+  private unbind(action: ControllerAction) {
+    const buttons = { ...this.mapping.buttons };
+    delete buttons[action];
+    this.mapping = { ...this.mapping, buttons };
+    this.onChange(this.mapping);
     this.render();
   }
 
@@ -134,13 +149,12 @@ export class ControllerSettings {
   private render() {
     const list = this.element.querySelector<HTMLDivElement>(".mapping")!;
     list.replaceChildren();
-    for (const key of KEY_NAMES) {
+    for (const action of CONTROLLER_ACTIONS) {
       const row = document.createElement("div");
       row.className = "mapping-row";
-      const index = this.mapping.buttons[key];
-      const value =
-        index === undefined ? "—" : (GAMEPAD_BUTTON_NAMES[index] ?? `Button ${index}`);
-      if (this.capturing === key) {
+      const index = this.mapping.buttons[action];
+      const value = index === undefined ? "—" : (GAMEPAD_BUTTON_NAMES[index] ?? `Button ${index}`);
+      if (this.capturing === action) {
         row.classList.add("capturing");
         row.innerHTML = `
           <span class="mapping-key"></span>
@@ -150,11 +164,15 @@ export class ControllerSettings {
         row.innerHTML = `
           <span class="mapping-key"></span>
           <span class="mapping-value"></span>
-          <button class="btn" data-action="change">Change</button>`;
+          <span class="mapping-actions">
+            <button class="btn" data-action="change">Change</button>
+            <button class="btn btn-icon mapping-clear" data-action="clear" title="Unbind" aria-label="Unbind">${icon("close", 16)}</button>
+          </span>`;
         row.querySelector(".mapping-value")!.textContent = value;
-        row.querySelector<HTMLElement>("[data-action=change]")!.dataset["key"] = key;
+        for (const b of row.querySelectorAll<HTMLElement>("[data-action]")) b.dataset["key"] = action;
+        if (index === undefined) row.querySelector(".mapping-clear")!.classList.add("hidden");
       }
-      row.querySelector(".mapping-key")!.textContent = LABELS[key];
+      row.querySelector(".mapping-key")!.textContent = LABELS[action];
       list.append(row);
     }
     this.element.querySelector<HTMLInputElement>("[data-option=stickDpad]")!.checked = this.mapping.stickDpad;

@@ -46,12 +46,11 @@ impl fmt::Display for StateError {
 
 impl std::error::Error for StateError {}
 
-pub fn write<T: Serialize>(game_code: &str, state: &T) -> Vec<u8> {
+pub fn write_into<T: Serialize>(game_code: &str, state: &T, out: &mut Vec<u8>) {
     let header = Header { magic: MAGIC, version: VERSION, game_code: game_code.to_string() };
-    let mut out = Vec::with_capacity(1 << 20);
-    bincode::serialize_into(&mut out, &header).expect("header serializes");
-    bincode::serialize_into(&mut out, state).expect("state serializes");
-    out
+    out.clear();
+    bincode::serialize_into(&mut *out, &header).expect("header serializes");
+    bincode::serialize_into(&mut *out, state).expect("state serializes");
 }
 
 pub fn read<T: for<'de> Deserialize<'de>>(game_code: &str, data: &[u8]) -> Result<T, StateError> {

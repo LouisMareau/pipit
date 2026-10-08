@@ -425,6 +425,18 @@ select {
   padding: 6px 12px;
 }
 
+.mapping-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mapping-clear {
+  width: 30px;
+  height: 30px;
+  color: var(--muted);
+}
+
 /* Controller toggle ------------------------------------------------------- */
 
 .controller {

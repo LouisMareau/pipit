@@ -156,6 +156,14 @@ console.log(`library entries: ${romCount}`);
 await evaluate("document.querySelector('.rom-main').click(); true");
 await sleep(4000);
 
+// Let it run a while: the worker reports the longest frame-to-frame gap of each
+// second, which exposes periodic stalls (garbage collection, pacing bugs).
+const gaps = [];
+for (let i = 0; i < 8; i++) {
+  await sleep(1000);
+  gaps.push(Number(await evaluate("document.querySelector('.toolbar-fps').dataset.maxGap ?? 0")));
+}
+console.log(`worst frame gap per second (ms): ${gaps.join(" ")}`);
 const fps = await evaluate("document.querySelector('.toolbar-fps').textContent");
 // Usually no controller is plugged in: the toggle renders gray but clickable.
 // With one connected it must be green instead, and the picker must list it.
@@ -318,7 +326,7 @@ if (
   !picker.open ||
   (pads.length === 0 ? picker.options[0] !== "No controller detected" : picker.options.length !== pads.length) ||
   !modal.open ||
-  modal.rows !== 10 ||
+  modal.rows !== 13 ||
   !modalClosed ||
   keyboardRows !== 13 ||
   fastForwardLabel !== "F" ||

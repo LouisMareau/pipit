@@ -3,7 +3,7 @@
 import type { FromWorker, ToWorker } from "../types";
 
 type Handlers = {
-  frame: (pixels: ArrayBuffer, audio: ArrayBuffer, fps: number) => void;
+  frame: (pixels: ArrayBuffer, audio: ArrayBuffer, fps: number, maxGapMs: number) => void;
   loaded: (title: string, gameCode: string) => void;
   save: (data: ArrayBuffer) => void;
   state: (slot: number, data: ArrayBuffer) => void;
@@ -22,7 +22,7 @@ export class EmulatorClient {
       const msg = event.data;
       switch (msg.type) {
         case "frame":
-          this.handlers.frame?.(msg.pixels, msg.audio, msg.fps);
+          this.handlers.frame?.(msg.pixels, msg.audio, msg.fps, msg.maxGapMs);
           break;
         case "loaded":
           this.handlers.loaded?.(msg.title, msg.gameCode);

@@ -10,6 +10,8 @@ use wasm_bindgen::prelude::*;
 pub struct Emulator {
     gba: Gba,
     rgba: Vec<u8>,
+    /// Reused for `snapshot`, so rewind captures allocate nothing.
+    state: Vec<u8>,
 }
 
 #[wasm_bindgen]
@@ -20,6 +22,7 @@ impl Emulator {
         Emulator {
             gba: Gba::new(rom.to_vec(), bios),
             rgba: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
+            state: Vec::new(),
         }
     }
 
@@ -74,6 +77,17 @@ impl Emulator {
     /// Serializes the whole machine state.
     pub fn save_state(&self) -> Vec<u8> {
         self.gba.save_state()
+    }
+
+    /// Serializes the state into an internal buffer and returns its length; read
+    /// it through `state_ptr` before the next call. No allocation after the first.
+    pub fn snapshot(&mut self) -> usize {
+        self.gba.save_state_into(&mut self.state);
+        self.state.len()
+    }
+
+    pub fn state_ptr(&self) -> *const u8 {
+        self.state.as_ptr()
     }
 
     /// Restores a state from `save_state`; throws when it does not belong to this game.

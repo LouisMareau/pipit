@@ -112,7 +112,15 @@ impl Gba {
 
     /// Serializes the complete machine state (everything except the ROM and BIOS).
     pub fn save_state(&self) -> Vec<u8> {
-        snapshot::write(&self.game_code(), self)
+        let mut out = Vec::new();
+        self.save_state_into(&mut out);
+        out
+    }
+
+    /// Like `save_state`, but reuses `out` (cleared first) to avoid allocating —
+    /// front-ends snapshot many times per second for rewind.
+    pub fn save_state_into(&self, out: &mut Vec<u8>) {
+        snapshot::write_into(&self.game_code(), self, out);
     }
 
     /// Restores a state produced by `save_state` for the same game.
