@@ -166,9 +166,16 @@ for (let i = 0; i < 8; i++) {
 console.log(`worst frame gap per second (ms): ${gaps.join(" ")}`);
 const fps = await evaluate("document.querySelector('.toolbar-fps').textContent");
 
-// Colour correction: the test ROM's white background reads 248 with the LCD look
-// (default) and 255 with raw colours.
-const samplePixel = () => evaluate("document.querySelector('canvas').getContext('2d').getImageData(4, 4, 1, 1).data[0]");
+// Colour correction: the brightest pixel (the test ROMs all draw pure white) reads
+// 248 with the LCD look (default) and 255 with raw colours.
+const samplePixel = () =>
+  evaluate(`(() => {
+    const c = document.querySelector('canvas');
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let max = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > max) max = d[i];
+    return max;
+  })()`);
 const lcdWhite = await samplePixel();
 await evaluate(`(() => { const s = document.querySelector('[data-setting=colorCorrection]'); s.value = 'off'; s.dispatchEvent(new Event('change')); })()`);
 await sleep(300);
