@@ -178,6 +178,16 @@ if (process.env.PIPIT_SMOKE_HOLD_SHOT) {
   });
   writeFileSync(process.env.PIPIT_SMOKE_HOLD_SHOT, Buffer.from(mid.data, "base64"));
 }
+if (process.env.PIPIT_SMOKE_ACTIVE_SHOT) {
+  // Debug aid: preview the active (green) look without a real controller.
+  await evaluate("document.querySelector('.controller-toggle').classList.add('active'); true");
+  const shot = await send("Page.captureScreenshot", {
+    format: "png",
+    clip: { x: toggleBox.x - 120, y: toggleBox.y - 24, width: 400, height: 48, scale: 3 },
+  });
+  writeFileSync(process.env.PIPIT_SMOKE_ACTIVE_SHOT, Buffer.from(shot.data, "base64"));
+  await evaluate("document.querySelector('.controller-toggle').classList.remove('active'); true");
+}
 await sleep(1100);
 await mouse("mouseReleased");
 await sleep(200);

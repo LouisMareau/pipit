@@ -26,8 +26,17 @@ export class ControllerToggle {
   constructor() {
     this.element = document.createElement("div");
     this.element.className = "controller";
+    // A plain controller silhouette; the d-pad and buttons are cut out in the
+    // button's own background colour so they read as holes in any state.
     this.element.innerHTML = `
-      <button class="btn btn-icon controller-toggle" aria-pressed="false">🎮</button>
+      <button class="btn btn-icon controller-toggle" aria-pressed="false" aria-label="Controller input">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+          <path fill="currentColor" d="M6 7h12c3.3 0 5.5 2.7 5.5 5.6 0 2.3-1.3 4.4-3.3 4.4-1.2 0-2-.7-2.7-1.6L16.7 14H7.3l-.8 1.4c-.7.9-1.5 1.6-2.7 1.6C1.8 17 .5 14.9.5 12.6.5 9.7 2.7 7 6 7z"/>
+          <path fill="var(--toggle-bg)" d="M6.7 9.3h1.6v1.4h1.4v1.6H8.3v1.4H6.7v-1.4H5.3v-1.6h1.4z"/>
+          <circle fill="var(--toggle-bg)" cx="16" cy="10.7" r="1"/>
+          <circle fill="var(--toggle-bg)" cx="18.4" cy="12.6" r="1"/>
+        </svg>
+      </button>
       <div class="controller-picker hidden">
         <select class="controller-select" aria-label="Active controller"></select>
       </div>`;

@@ -23,7 +23,7 @@ export class Library {
       <ul class="rom-list"></ul>
       <p class="muted small keys-help">
         Keyboard: arrows · Z = A · X = B · Enter = Start · Backspace = Select · A/S = L/R · hold Space to fast-forward.
-        Controllers work too: press a button on one and the 🎮 toggle in the player turns green.
+        Controllers work too: press a button on one and the controller toggle in the player turns green.
       </p>`;
     const input = this.element.querySelector<HTMLInputElement>("input[type=file]")!;
     input.addEventListener("change", async () => {

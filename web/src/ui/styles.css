@@ -5,6 +5,7 @@
   --text: #e8eaef;
   --muted: #8b90a0;
   --accent: #5fd3bc;
+  --accent-light: #a4ece0;
   --accent-ink: #0d1a17;
   --danger: #ff7b7b;
   --radius: 12px;
@@ -401,15 +402,29 @@ body {
 
 .controller-toggle {
   position: relative;
-  opacity: 0.55; /* grayed-out: no controller, or controller input off */
+  display: grid;
+  place-items: center;
   --hold: 0;
+  /* Gray state: dimmed button, controller drawn a shade darker than the button. */
+  --toggle-bg: var(--surface-2);
+  background: var(--toggle-bg);
+  color: #1a1d24;
+  opacity: 0.7;
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
 }
 
 .controller-toggle.active {
+  /* Active: accent button, controller drawn a shade lighter than the accent. */
+  --toggle-bg: var(--accent);
+  background: var(--toggle-bg);
+  color: var(--accent-light);
   opacity: 1;
+}
+
+.controller-toggle svg {
+  display: block;
 }
 
 /* The hold indicator: a ring just inside the border that fills clockwise. */
