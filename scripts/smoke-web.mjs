@@ -51,10 +51,18 @@ const child = spawn(
     "--no-default-browser-check",
     "--autoplay-policy=no-user-gesture-required",
     "--window-size=900,700",
+    // CI containers have no usable sandbox or /dev/shm; harmless elsewhere.
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
     "about:blank",
   ],
-  { stdio: "ignore" },
+  { stdio: ["ignore", "ignore", "pipe"] },
 );
+let browserStderr = "";
+child.stderr.on("data", (chunk) => {
+  browserStderr += chunk;
+});
 const cleanup = () => {
   child.kill();
   setTimeout(() => rmSync(profile, { recursive: true, force: true }), 500);
@@ -64,14 +72,17 @@ process.on("exit", cleanup);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let targets = [];
-for (let i = 0; i < 50 && targets.length === 0; i++) {
+for (let i = 0; i < 150 && !targets.some((t) => t.type === "page"); i++) {
   await sleep(200);
   targets = await fetch(`http://127.0.0.1:${port}/json/list`)
     .then((r) => r.json())
     .catch(() => []);
 }
 const page = targets.find((t) => t.type === "page");
-if (!page) throw new Error("browser did not expose a page target");
+if (!page) {
+  console.error(`browser: ${browser}\n${browserStderr.slice(-2000)}`);
+  throw new Error("browser did not expose a page target");
+}
 
 const ws = new WebSocket(page.webSocketDebuggerUrl);
 await new Promise((resolve, reject) => {
