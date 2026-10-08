@@ -11,6 +11,10 @@
   --radius: 8px;
   /* Touch control size: scales with the shorter side so landscape does not balloon. */
   --touch-size: clamp(44px, 11vmin, 72px);
+  --dpad-size: calc(var(--touch-size) * 2.6);
+  --ab-size: calc(var(--touch-size) * 1.15);
+  /* How far the left and right groups sit in from their edge, towards the screen. */
+  --touch-inset: calc(var(--touch-size) * 0.35);
   color-scheme: dark;
 }
 
@@ -313,11 +317,11 @@ select {
   font-weight: 600;
 }
 
-/* Transient notices (state saved, errors) */
+/* Transient notices (state saved, errors): under the toolbar, never over controls. */
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(24px + env(safe-area-inset-bottom));
+  top: calc(64px + env(safe-area-inset-top));
   transform: translateX(-50%);
   z-index: 30;
   padding: 10px 16px;
@@ -333,7 +337,7 @@ select {
 @keyframes toast {
   0% {
     opacity: 0;
-    transform: translate(-50%, 8px);
+    transform: translate(-50%, -8px);
   }
   10%,
   80% {
@@ -566,28 +570,36 @@ select {
 .touch-left,
 .touch-right {
   display: grid;
-  grid-template-rows: auto calc(var(--touch-size) * 2.3);
+  grid-template-rows: auto var(--dpad-size);
   align-items: center;
   justify-items: center;
   gap: 12px;
   min-width: 0;
 }
 
+.touch-left {
+  padding-left: var(--touch-inset);
+}
+
+.touch-right {
+  padding-right: var(--touch-inset);
+}
+
 /* A/B fill a box the height of the D-pad, staggered symmetrically around its
    centre, so the pair's centre lines up with the D-pad's. */
 .touch-ab {
-  height: calc(var(--touch-size) * 2.3);
+  height: var(--dpad-size);
   display: flex;
   align-items: center;
   gap: 14px;
 }
 
 .tbtn-b {
-  transform: translateY(calc(var(--touch-size) * 0.18));
+  transform: translateY(calc(var(--ab-size) * 0.18));
 }
 
 .tbtn-a {
-  transform: translateY(calc(var(--touch-size) * -0.18));
+  transform: translateY(calc(var(--ab-size) * -0.18));
 }
 
 .touch-system {
@@ -606,16 +618,16 @@ select {
     "touch";
 }
 
+/* Pads sit at the bottom corners, where thumbs rest when holding the phone, with
+   Select/Start between them. */
 .player.touch-on[data-layout="gbasp"] .touch {
   grid-area: touch;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr auto;
-  grid-template-areas:
-    "left right"
-    "system system";
-  align-items: center;
-  padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: 1fr;
+  grid-template-areas: "left system right";
+  align-items: end;
+  padding: 10px 12px calc(18px + env(safe-area-inset-bottom));
   background: var(--bg);
 }
 
@@ -629,9 +641,19 @@ select {
   justify-items: end;
 }
 
+/* Select/Start stack between the pads, out of the thumbs' way. */
 .player.touch-on[data-layout="gbasp"] .touch-system {
   grid-area: system;
-  padding-top: 8px;
+  align-self: end;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: calc(var(--ab-size) * 0.3);
+}
+
+.player.touch-on[data-layout="gbasp"] .tbtn-pill {
+  width: 64px;
+  height: 28px;
+  font-size: 11px;
 }
 
 /* GBA: controls beside the screen, Select/Start underneath. */
@@ -651,14 +673,14 @@ select {
 .player.touch-on[data-layout="gba"] .touch-left {
   grid-area: left;
   align-content: center;
-  padding: 8px 10px 8px calc(10px + env(safe-area-inset-left));
+  padding: 8px 10px 8px calc(var(--touch-inset) + env(safe-area-inset-left));
   background: var(--bg);
 }
 
 .player.touch-on[data-layout="gba"] .touch-right {
   grid-area: right;
   align-content: center;
-  padding: 8px calc(10px + env(safe-area-inset-right)) 8px 10px;
+  padding: 8px calc(var(--touch-inset) + env(safe-area-inset-right)) 8px 10px;
   background: var(--bg);
 }
 
@@ -686,13 +708,14 @@ select {
 
 .tbtn-a,
 .tbtn-b {
-  width: var(--touch-size);
-  height: var(--touch-size);
+  width: var(--ab-size);
+  height: var(--ab-size);
   border-radius: 50%;
+  font-size: 18px;
 }
 
 .tbtn-shoulder {
-  width: calc(var(--touch-size) * 1.6);
+  width: calc(var(--touch-size) * 2);
   height: 36px;
 }
 
@@ -706,29 +729,29 @@ select {
 
 .dpad {
   position: relative;
-  width: calc(var(--touch-size) * 2.3);
-  height: calc(var(--touch-size) * 2.3);
+  width: var(--dpad-size);
+  height: var(--dpad-size);
   touch-action: none;
 }
 
 .dpad-arm {
   position: absolute;
   background: var(--surface-2);
-  border-radius: 5px;
+  border-radius: 6px;
 }
 
 .dpad-up,
 .dpad-down {
-  left: 34%;
-  width: 32%;
+  left: 31%;
+  width: 38%;
   height: 40%;
 }
 
 .dpad-left,
 .dpad-right {
-  top: 34%;
+  top: 31%;
   width: 40%;
-  height: 32%;
+  height: 38%;
 }
 
 .dpad-up {
@@ -749,10 +772,10 @@ select {
 
 .dpad-center {
   position: absolute;
-  left: 34%;
-  top: 34%;
-  width: 32%;
-  height: 32%;
+  left: 31%;
+  top: 31%;
+  width: 38%;
+  height: 38%;
   background: var(--surface-2);
 }
 
