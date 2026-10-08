@@ -1,0 +1,18 @@
+[package]
+name = "pipit-cli"
+description = "Headless runner for pipit-gba: tests, screenshots, benchmarks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "pipit"
+path = "src/main.rs"
+
+[dependencies]
+pipit-gba = { workspace = true }
+clap = { workspace = true }
+png = { workspace = true }
+anyhow = { workspace = true }

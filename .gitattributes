@@ -1,0 +1,6 @@
+# Keep line endings consistent across platforms; binaries are marked so git never touches them.
+* text=auto eol=lf
+*.png binary
+*.gba binary
+*.sav binary
+*.wasm binary

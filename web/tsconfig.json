@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["vite/client", "vite-plugin-pwa/client", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "@wasm/*": ["../build/wasm/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

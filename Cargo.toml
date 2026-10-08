@@ -1,0 +1,34 @@
+[workspace]
+resolver = "2"
+members = ["crates/gba", "crates/wasm", "crates/cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/loupmareau/pipit"
+authors = ["Loup Mareau"]
+
+# Shared dependency versions. Crates opt in with `foo = { workspace = true }`.
+[workspace.dependencies]
+pipit-gba = { path = "crates/gba" }
+serde = { version = "1", features = ["derive"] }
+bincode = "1.3"
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+clap = { version = "4", features = ["derive"] }
+png = "0.17"
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# Fast enough to run test ROMs in debug builds without waiting forever.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

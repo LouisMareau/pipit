@@ -1,0 +1,20 @@
+{
+  "name": "pipit-web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pipit GBA emulator — installable web app",
+  "type": "module",
+  "scripts": {
+    "wasm": "node scripts/build-wasm.mjs",
+    "dev": "npm run wasm && vite",
+    "build": "npm run wasm && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.3",
+    "vite-plugin-pwa": "^0.21.1"
+  }
+}

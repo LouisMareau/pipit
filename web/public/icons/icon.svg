@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#14161c"/>
+  <!-- A pipit: small bird, perched, facing right -->
+  <ellipse cx="33" cy="36" rx="15" ry="10" fill="#5fd3bc"/>
+  <circle cx="44" cy="26" r="7" fill="#5fd3bc"/>
+  <polygon points="50,25 57,27 50,29" fill="#f3c86b"/>
+  <circle cx="46" cy="24.5" r="1.4" fill="#14161c"/>
+  <polygon points="18,34 8,28 20,38" fill="#5fd3bc"/>
+  <path d="M30 45 L28 52 M35 45 L36 52" stroke="#f3c86b" stroke-width="2" stroke-linecap="round"/>
+  <path d="M24 32 Q31 26 40 33" stroke="#14161c" stroke-width="1.5" fill="none" opacity="0.5"/>
+</svg>

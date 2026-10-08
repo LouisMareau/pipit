@@ -1,0 +1,80 @@
+//! WebAssembly bindings. The web app talks to `Emulator` from a Web Worker.
+//!
+//! Frames are exposed as a pointer into WASM memory (RGBA bytes, ready for an
+//! `ImageData`) so the worker can copy them out without an intermediate `Vec`.
+
+use pipit_gba::{Gba, Keys, SCREEN_HEIGHT, SCREEN_WIDTH};
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub struct Emulator {
+    gba: Gba,
+    rgba: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl Emulator {
+    /// Creates an emulator for the given ROM bytes and optional BIOS image.
+    #[wasm_bindgen(constructor)]
+    pub fn new(rom: &[u8], bios: Option<Vec<u8>>) -> Emulator {
+        Emulator {
+            gba: Gba::new(rom.to_vec(), bios),
+            rgba: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
+        }
+    }
+
+    /// Emulates until the next frame is complete and converts it to RGBA.
+    pub fn run_frame(&mut self) {
+        self.gba.run_frame();
+        for (px, out) in self.gba.framebuffer().iter().zip(self.rgba.chunks_exact_mut(4)) {
+            out[0] = (px >> 16) as u8;
+            out[1] = (px >> 8) as u8;
+            out[2] = *px as u8;
+            out[3] = 0xFF;
+        }
+    }
+
+    /// Pointer to the 240×160×4 RGBA frame inside WASM memory.
+    pub fn frame_ptr(&self) -> *const u8 {
+        self.rgba.as_ptr()
+    }
+
+    pub fn frame_len(&self) -> usize {
+        self.rgba.len()
+    }
+
+    /// Sets the held keys (bit layout of `Keys`).
+    pub fn set_keys(&mut self, keys: u16) {
+        self.gba.set_keys(Keys(keys));
+    }
+
+    /// Takes the audio produced since the last call: interleaved stereo i16 at 32768 Hz.
+    pub fn drain_audio(&mut self) -> Vec<i16> {
+        self.gba.drain_audio()
+    }
+
+    pub fn save_data(&self) -> Option<Vec<u8>> {
+        self.gba.save_data().map(<[u8]>::to_vec)
+    }
+
+    pub fn load_save_data(&mut self, data: &[u8]) {
+        self.gba.load_save_data(data);
+    }
+
+    pub fn take_save_dirty(&mut self) -> bool {
+        self.gba.take_save_dirty()
+    }
+
+    /// Sets the cartridge clock from a Unix timestamp in seconds.
+    pub fn set_time(&mut self, unix_seconds: f64) {
+        self.gba.set_time(unix_seconds as i64);
+    }
+
+    pub fn title(&self) -> String {
+        self.gba.title()
+    }
+
+    pub fn game_code(&self) -> String {
+        self.gba.game_code()
+    }
+}

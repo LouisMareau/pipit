@@ -1,0 +1,22 @@
+# Outputs — every build artifact lives under build/
+/build/
+
+# Dependencies
+node_modules/
+Cargo.lock.bak
+
+# Game files are never committed. Test suites are cloned into tests/roms by scripts/fetch-test-roms.
+/tests/roms/
+*.gba
+*.gbc
+*.gb
+*.sav
+*.ss?
+bios.bin
+
+# Editors & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp

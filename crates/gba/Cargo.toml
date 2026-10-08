@@ -1,0 +1,13 @@
+[package]
+name = "pipit-gba"
+description = "Game Boy Advance emulation core: no I/O, no platform code"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]

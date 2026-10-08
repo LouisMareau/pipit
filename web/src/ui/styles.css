@@ -1,0 +1,440 @@
+:root {
+  --bg: #14161c;
+  --surface: #1d2027;
+  --surface-2: #272b34;
+  --text: #e8eaef;
+  --muted: #8b90a0;
+  --accent: #5fd3bc;
+  --accent-ink: #0d1a17;
+  --danger: #ff7b7b;
+  --radius: 12px;
+  --touch-size: clamp(52px, 13vw, 76px);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+#app {
+  height: 100%;
+  padding-top: env(safe-area-inset-top);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 13px;
+}
+
+/* Buttons ------------------------------------------------------------------ */
+
+.btn {
+  appearance: none;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 10px 16px;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.btn:hover {
+  filter: brightness(1.1);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.btn-icon {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.btn.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Library ------------------------------------------------------------------ */
+
+.library {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.library-header h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 4px;
+  font-size: 28px;
+}
+
+.library-header p {
+  margin: 0 0 24px;
+}
+
+.add-rom {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 20px;
+  cursor: pointer;
+}
+
+.rom-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rom {
+  display: flex;
+  align-items: stretch;
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.rom-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rom-main:hover {
+  background: var(--surface-2);
+}
+
+.rom-name {
+  font-weight: 600;
+}
+
+.rom-delete {
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  width: 48px;
+  height: auto;
+}
+
+.rom-delete:hover {
+  color: var(--danger);
+  background: var(--surface-2);
+}
+
+.empty {
+  padding: 24px;
+  text-align: center;
+}
+
+.keys-help {
+  margin-top: 24px;
+}
+
+/* Player ------------------------------------------------------------------- */
+
+.player {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: #000;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--bg);
+}
+
+.toolbar-title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.screen-box {
+  position: relative;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.screen {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #000;
+}
+
+.menu {
+  position: absolute;
+  right: 8px;
+  top: 56px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  min-width: 260px;
+}
+
+.menu .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+}
+
+.menu input[type="range"] {
+  flex: 1;
+}
+
+/* Touch controls ----------------------------------------------------------- */
+
+.touch {
+  display: none;
+  position: relative;
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+@media (pointer: coarse) {
+  .touch {
+    display: grid;
+  }
+}
+
+.player.force-touch .touch {
+  display: grid;
+}
+
+.touch {
+  grid-template-areas:
+    "shoulders shoulders"
+    "left right"
+    "system system";
+  grid-template-columns: 1fr 1fr;
+  row-gap: 10px;
+}
+
+.touch-shoulders {
+  grid-area: shoulders;
+  display: flex;
+  justify-content: space-between;
+}
+
+.touch-left {
+  grid-area: left;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.touch-right {
+  grid-area: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  padding-top: 10px;
+}
+
+.touch-system {
+  grid-area: system;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.tbtn {
+  appearance: none;
+  border: 0;
+  background: var(--surface-2);
+  color: var(--text);
+  font: 600 16px/1 system-ui, sans-serif;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tbtn.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.tbtn-a,
+.tbtn-b {
+  width: var(--touch-size);
+  height: var(--touch-size);
+  border-radius: 50%;
+}
+
+.tbtn-b {
+  margin-top: 26px;
+}
+
+.tbtn-shoulder {
+  width: calc(var(--touch-size) * 1.6);
+  height: 40px;
+  border-radius: 10px;
+}
+
+.tbtn-pill {
+  width: 76px;
+  height: 30px;
+  border-radius: 15px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dpad {
+  position: relative;
+  width: calc(var(--touch-size) * 2.3);
+  height: calc(var(--touch-size) * 2.3);
+  touch-action: none;
+}
+
+.dpad-arm {
+  position: absolute;
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+
+.dpad-up,
+.dpad-down {
+  left: 34%;
+  width: 32%;
+  height: 40%;
+}
+
+.dpad-left,
+.dpad-right {
+  top: 34%;
+  width: 40%;
+  height: 32%;
+}
+
+.dpad-up {
+  top: 0;
+}
+
+.dpad-down {
+  bottom: 0;
+}
+
+.dpad-left {
+  left: 0;
+}
+
+.dpad-right {
+  right: 0;
+}
+
+.dpad-center {
+  position: absolute;
+  left: 34%;
+  top: 34%;
+  width: 32%;
+  height: 32%;
+  background: var(--surface-2);
+}
+
+/* Highlight the pressed direction(s): bits Right=16 Left=32 Up=64 Down=128 */
+.dpad[data-dir="16"] .dpad-right,
+.dpad[data-dir="144"] .dpad-right,
+.dpad[data-dir="80"] .dpad-right,
+.dpad[data-dir="32"] .dpad-left,
+.dpad[data-dir="160"] .dpad-left,
+.dpad[data-dir="96"] .dpad-left,
+.dpad[data-dir="64"] .dpad-up,
+.dpad[data-dir="80"] .dpad-up,
+.dpad[data-dir="96"] .dpad-up,
+.dpad[data-dir="128"] .dpad-down,
+.dpad[data-dir="144"] .dpad-down,
+.dpad[data-dir="160"] .dpad-down {
+  background: var(--accent);
+}
+
+/* Landscape phones: controls float over the sides of the screen. */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 500px) {
+  .player {
+    grid-template-rows: auto 1fr;
+  }
+
+  .touch {
+    position: absolute;
+    inset: 0;
+    background: none;
+    pointer-events: none;
+    grid-template-areas:
+      "shoulders shoulders"
+      "left right"
+      "system system";
+    align-content: space-between;
+    padding: 56px 12px 12px;
+  }
+
+  .touch > * {
+    pointer-events: auto;
+  }
+
+  .tbtn,
+  .dpad-arm,
+  .dpad-center {
+    opacity: 0.75;
+  }
+}

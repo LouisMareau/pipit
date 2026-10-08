@@ -1,0 +1,16 @@
+[package]
+name = "pipit-wasm"
+description = "WebAssembly bindings exposing pipit-gba to the web app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pipit-gba = { workspace = true }
+wasm-bindgen = { workspace = true }
+js-sys = { workspace = true }

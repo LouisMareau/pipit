@@ -1,0 +1,3 @@
+# Keep every Rust build output under build/ so the source tree stays clean.
+[build]
+target-dir = "build/target"
