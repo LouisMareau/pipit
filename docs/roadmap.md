@@ -24,15 +24,17 @@ Checked items are done and covered by tests.
 - [x] Load a ROM from the device, play with keyboard
 - [x] Touch controls (built; needs a round of testing on real phones)
 - [x] Controller support: auto-detect, toolbar toggle (click = on/off, hold = pick among several)
+- [x] Controller button remapping (gear next to the picker; saved per controller model)
+- [x] Touch layouts: GBA (beside the screen), GBA SP (below it), Auto by orientation
 - [x] Audio output (AudioWorklet)
 - [x] Save data persistence (IndexedDB), .sav export/import
 - [x] Fast-forward, screenshots
 - [x] Installable PWA, offline
 - [x] Save state slots (3 slots, Shift+F1–F3 / F1–F3)
 - [x] Rewind (hold R or the ⟲ touch button; length configurable)
-- [ ] Remappable controls
+- [ ] Remappable keyboard controls
 - [ ] Colour correction / LCD look
-- [ ] Deployed online
+- [x] Deployed online (GitHub Pages, on every push to `main`)
 
 ## Desktop
 

@@ -49,6 +49,45 @@ export interface RomEntry {
   lastPlayed: number;
 }
 
+/** Which controller button (Gamepad API index) drives each GBA key. */
+export interface ControllerMapping {
+  buttons: Partial<Record<KeyName, number>>;
+  /** The left stick also works as the D-pad. */
+  stickDpad: boolean;
+}
+
+/** Standard-mapping defaults (Xbox / PlayStation / Switch Pro all follow it). */
+export const DEFAULT_MAPPING: ControllerMapping = {
+  buttons: { A: 0, B: 1, L: 4, R: 5, Select: 8, Start: 9, Up: 12, Down: 13, Left: 14, Right: 15 },
+  stickDpad: true,
+};
+
+/** GBA keys in the order the remapping screen lists them. */
+export const KEY_NAMES: KeyName[] = ["A", "B", "L", "R", "Start", "Select", "Up", "Down", "Left", "Right"];
+
+/** Human names for standard-mapping button indices. */
+export const GAMEPAD_BUTTON_NAMES: Record<number, string> = {
+  0: "A / ✕",
+  1: "B / ○",
+  2: "X / □",
+  3: "Y / △",
+  4: "LB / L1",
+  5: "RB / R1",
+  6: "LT / L2",
+  7: "RT / R2",
+  8: "Back / Share / −",
+  9: "Start / Options / +",
+  10: "Left stick",
+  11: "Right stick",
+  12: "D-pad up",
+  13: "D-pad down",
+  14: "D-pad left",
+  15: "D-pad right",
+  16: "Home",
+};
+
+export type TouchLayout = "auto" | "gba" | "gbasp";
+
 export interface Settings {
   volume: number;
   /** Integer pixel scaling instead of filling the available space. */
@@ -57,6 +96,10 @@ export interface Settings {
   alwaysShowTouch: boolean;
   /** Seconds of gameplay kept for rewinding (0 disables it). */
   rewindSeconds: number;
+  /** Where the touch controls go: beside the screen (GBA) or below it (GBA SP). */
+  touchLayout: TouchLayout;
+  /** Button mappings, keyed by controller id. */
+  controllerMappings: Record<string, ControllerMapping>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -64,6 +107,8 @@ export const DEFAULT_SETTINGS: Settings = {
   integerScale: false,
   alwaysShowTouch: false,
   rewindSeconds: 4,
+  touchLayout: "auto",
+  controllerMappings: {},
 };
 
 /** Number of save-state slots offered in the UI. */

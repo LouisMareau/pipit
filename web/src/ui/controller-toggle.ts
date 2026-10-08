@@ -21,6 +21,7 @@ export class ControllerToggle {
   private holdCompleted = false;
   onToggle: (enabled: boolean) => void = () => {};
   onSelect: (index: number) => void = () => {};
+  onSettings: () => void = () => {};
   onNothingDetected: () => void = () => {};
 
   constructor() {
@@ -41,10 +42,19 @@ export class ControllerToggle {
       </button>
       <div class="controller-picker hidden">
         <select class="controller-select" aria-label="Active controller"></select>
+        <button class="btn btn-icon controller-gear" title="Controller settings" aria-label="Controller settings">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path fill="currentColor" d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm7.4-2.5c.1-.3.1-.7.1-1s0-.7-.1-1l2.1-1.6c.2-.2.2-.4.1-.6l-2-3.5c-.1-.2-.4-.3-.6-.2l-2.5 1c-.5-.4-1.1-.7-1.7-1l-.4-2.6c0-.2-.2-.4-.5-.4h-4c-.2 0-.4.2-.5.4l-.4 2.6c-.6.3-1.2.6-1.7 1l-2.5-1c-.2-.1-.5 0-.6.2l-2 3.5c-.1.2-.1.5.1.6L4.6 11c-.1.3-.1.7-.1 1s0 .7.1 1l-2.1 1.6c-.2.2-.2.4-.1.6l2 3.5c.1.2.4.3.6.2l2.5-1c.5.4 1.1.7 1.7 1l.4 2.6c0 .2.2.4.5.4h4c.2 0 .4-.2.5-.4l.4-2.6c.6-.3 1.2-.6 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.5c.1-.2.1-.5-.1-.6L19.4 13z"/>
+          </svg>
+        </button>
       </div>`;
     this.button = this.element.querySelector(".controller-toggle")!;
     this.picker = this.element.querySelector(".controller-picker")!;
     this.select = this.element.querySelector(".controller-select")!;
+    this.element.querySelector(".controller-gear")!.addEventListener("click", () => {
+      this.closePicker();
+      this.onSettings();
+    });
 
     this.button.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;

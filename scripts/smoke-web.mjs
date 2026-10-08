@@ -121,6 +121,10 @@ const evaluate = async (expression) => {
   if (r.exceptionDetails) throw new Error(r.exceptionDetails.text);
   return r.result.value;
 };
+const pressKey = async (code, key, keyCode, modifiers = 0) => {
+  await send("Input.dispatchKeyEvent", { type: "keyDown", code, key, windowsVirtualKeyCode: keyCode, modifiers });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", code, key, windowsVirtualKeyCode: keyCode, modifiers });
+};
 
 await send("Page.enable");
 await send("Runtime.enable");
@@ -199,6 +203,18 @@ const picker = await evaluate(`(() => {
   return { open: !p.classList.contains('hidden'), options };
 })()`);
 console.log(`controller picker after hold: ${JSON.stringify(picker)}`);
+
+// The gear next to the picker opens the remapping modal; Escape closes it.
+await evaluate("document.querySelector('.controller-gear').click(); true");
+await sleep(200);
+const modal = await evaluate(`(() => {
+  const m = document.querySelector('.modal-backdrop');
+  return { open: !m.classList.contains('hidden'), rows: document.querySelectorAll('.mapping-row').length };
+})()`);
+await pressKey("Escape", "Escape", 27);
+await sleep(200);
+const modalClosed = await evaluate("document.querySelector('.modal-backdrop').classList.contains('hidden')");
+console.log(`controller settings modal: ${JSON.stringify(modal)}, closed after Escape: ${modalClosed}`);
 const litPixels = await evaluate(`(() => {
   const c = document.querySelector('canvas');
   const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
@@ -209,10 +225,6 @@ const litPixels = await evaluate(`(() => {
 console.log(`fps counter: "${fps}"; non-black pixels: ${litPixels}`);
 
 // Save states: Shift+F1 saves slot 1, F1 loads it; each shows a toast.
-const pressKey = async (code, key, keyCode, modifiers = 0) => {
-  await send("Input.dispatchKeyEvent", { type: "keyDown", code, key, windowsVirtualKeyCode: keyCode, modifiers });
-  await send("Input.dispatchKeyEvent", { type: "keyUp", code, key, windowsVirtualKeyCode: keyCode, modifiers });
-};
 const lastToast = () => evaluate("Array.from(document.querySelectorAll('.toast')).at(-1)?.textContent ?? ''");
 await pressKey("F1", "F1", 112, 8);
 await sleep(800);
@@ -221,6 +233,41 @@ await pressKey("F1", "F1", 112);
 await sleep(800);
 const loadedToast = await lastToast();
 console.log(`save state: "${savedToast}" / "${loadedToast}"`);
+
+// Phone check: emulate a touch device in both orientations; nothing may overflow
+// horizontally, and the touch layout must follow the orientation (Auto setting).
+const phone = {};
+for (const [name, width, height] of [
+  ["portrait", 390, 844],
+  ["landscape", 844, 390],
+]) {
+  await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile: true });
+  // Touch emulation is what flips `(pointer: coarse)` for the page.
+  await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "pointer", value: "coarse" }, { name: "hover", value: "none" }] });
+  await evaluate("window.dispatchEvent(new Event('resize')); true");
+  await sleep(400);
+  phone[name] = await evaluate(`(() => {
+    const player = document.querySelector('.player');
+    const touch = document.querySelector('.touch');
+    const widest = Math.max(...Array.from(document.querySelectorAll('.player *')).map((e) => e.getBoundingClientRect().right));
+    return {
+      layout: player.dataset.layout,
+      touchShown: getComputedStyle(touch).display !== 'none',
+      overflow: Math.round(Math.max(document.documentElement.scrollWidth, widest) - window.innerWidth),
+    };
+  })()`);
+  if (process.env.PIPIT_SMOKE_PHONE_SHOTS) {
+    const s = await send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(join(process.env.PIPIT_SMOKE_PHONE_SHOTS, `phone-${name}.png`), Buffer.from(s.data, "base64"));
+  }
+}
+await send("Emulation.clearDeviceMetricsOverride");
+await send("Emulation.setTouchEmulationEnabled", { enabled: false });
+await send("Emulation.setEmulatedMedia", { features: [] });
+await evaluate("window.dispatchEvent(new Event('resize')); true");
+await sleep(300);
+console.log(`phone: ${JSON.stringify(phone)}`);
 
 const shot = await send("Page.captureScreenshot", { format: "png" });
 mkdirSync(dirname(screenshot), { recursive: true });
@@ -240,7 +287,15 @@ if (
   controller.active !== pads.length > 0 ||
   controller.disabled ||
   !picker.open ||
-  (pads.length === 0 ? picker.options[0] !== "No controller detected" : picker.options.length !== pads.length)
+  (pads.length === 0 ? picker.options[0] !== "No controller detected" : picker.options.length !== pads.length) ||
+  !modal.open ||
+  modal.rows !== 10 ||
+  !modalClosed ||
+  phone.portrait.layout !== "gbasp" ||
+  phone.landscape.layout !== "gba" ||
+  !phone.portrait.touchShown ||
+  phone.portrait.overflow > 0 ||
+  phone.landscape.overflow > 0
 ) {
   console.error("SMOKE TEST FAILED");
   process.exit(1);

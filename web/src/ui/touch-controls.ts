@@ -1,5 +1,9 @@
 // On-screen controls for phones and tablets. Pointer events handle multi-touch;
 // the D-pad resolves eight directions from the touch position so diagonals work.
+//
+// The DOM is grouped as a left side (L above the D-pad), a right side (R above
+// A/B) and a middle row (Select, rewind, Start). CSS arranges the groups either
+// beside the screen (GBA layout) or below it (GBA SP layout).
 
 import { Key } from "../types";
 
@@ -16,6 +20,7 @@ export class TouchControls {
     this.element.className = "touch";
     this.element.innerHTML = `
       <div class="touch-left">
+        <button class="tbtn tbtn-shoulder" data-key="${Key.L}">L</button>
         <div class="dpad" data-dpad>
           <span class="dpad-arm dpad-up"></span>
           <span class="dpad-arm dpad-down"></span>
@@ -25,12 +30,11 @@ export class TouchControls {
         </div>
       </div>
       <div class="touch-right">
-        <button class="tbtn tbtn-b" data-key="${Key.B}">B</button>
-        <button class="tbtn tbtn-a" data-key="${Key.A}">A</button>
-      </div>
-      <div class="touch-shoulders">
-        <button class="tbtn tbtn-shoulder" data-key="${Key.L}">L</button>
         <button class="tbtn tbtn-shoulder" data-key="${Key.R}">R</button>
+        <div class="touch-ab">
+          <button class="tbtn tbtn-b" data-key="${Key.B}">B</button>
+          <button class="tbtn tbtn-a" data-key="${Key.A}">A</button>
+        </div>
       </div>
       <div class="touch-system">
         <button class="tbtn tbtn-pill" data-key="${Key.Select}">select</button>

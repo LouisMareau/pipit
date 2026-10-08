@@ -6,8 +6,9 @@ import { AudioOutput } from "../platform/audio";
 import { EmulatorClient } from "../platform/emulator-client";
 import { Input } from "../platform/input";
 import * as storage from "../platform/storage";
-import type { RomEntry, Settings } from "../types";
-import { STATE_SLOTS } from "../types";
+import type { ControllerMapping, RomEntry, Settings, TouchLayout } from "../types";
+import { DEFAULT_MAPPING, STATE_SLOTS } from "../types";
+import { ControllerSettings } from "./controller-settings";
 import { ControllerToggle } from "./controller-toggle";
 import { Library } from "./library";
 import { Screen } from "./screen";
@@ -20,6 +21,7 @@ export class App {
   private screen: Screen;
   private touch = new TouchControls();
   private controller = new ControllerToggle();
+  private controllerSettings = new ControllerSettings();
   private emulator: EmulatorClient;
   private audio = new AudioOutput();
   private input = new Input();
@@ -61,6 +63,13 @@ export class App {
         <h4>Settings</h4>
         <label class="row"><span>Volume</span><input type="range" min="0" max="1" step="0.05" data-setting="volume" /></label>
         <label class="row"><span>Rewind</span><input type="range" min="0" max="10" step="1" data-setting="rewindSeconds" /><span class="small rewind-label"></span></label>
+        <label class="row"><span>Touch layout</span>
+          <select data-setting="touchLayout">
+            <option value="auto">Auto (GBA in landscape, GBA SP in portrait)</option>
+            <option value="gba">GBA — controls beside the screen</option>
+            <option value="gbasp">GBA SP — controls below the screen</option>
+          </select>
+        </label>
         <label class="row"><input type="checkbox" data-setting="integerScale" /><span>Integer pixel scaling</span></label>
         <label class="row"><input type="checkbox" data-setting="alwaysShowTouch" /><span>Always show touch controls</span></label>
         <button class="btn" data-action="fullscreen">Fullscreen</button>
@@ -68,13 +77,14 @@ export class App {
     this.screen = new Screen();
     this.player.querySelector(".screen-box")!.append(this.screen.element);
     this.player.querySelector(".toolbar-controller")!.append(this.controller.element);
-    this.player.append(this.touch.element);
+    this.player.append(this.touch.element, this.controllerSettings.element);
     this.root.append(this.library.element, this.player);
 
     this.library.onPlay = (entry) => this.play(entry);
     this.wireToolbar();
     this.wireSettings();
     this.wireEmulator();
+    this.wireController();
 
     this.input.attach(window);
     this.input.onChange = (keys) => this.emulator.setKeys(keys);
@@ -82,17 +92,6 @@ export class App {
     this.input.onRewind = (held) => this.emulator.setRewind(held);
     this.touch.onChange = (keys) => this.input.setTouch(keys);
     this.touch.onRewind = (held) => this.emulator.setRewind(held);
-
-    // Controller toggle: detection drives the button; the button drives the input.
-    this.input.onGamepads = (state) => {
-      this.controller.update(state);
-      if (state.enabled && state.active !== null) this.toast("Controller connected");
-    };
-    this.controller.onToggle = (enabled) => this.input.setGamepadEnabled(enabled);
-    this.controller.onSelect = (index) => this.input.setActiveGamepad(index);
-    this.controller.onNothingDetected = () =>
-      this.toast("No controller detected — press a button on it to wake it up");
-    this.controller.update(this.input.gamepadState());
 
     // Audio can only start from a user gesture.
     const unlock = () => this.audio.resume();
@@ -103,6 +102,7 @@ export class App {
       if (document.hidden && this.current && !this.paused) this.emulator.requestSave();
     });
     window.addEventListener("beforeunload", () => this.flushSave());
+    window.addEventListener("resize", () => this.applyLayout());
     this.applySettings();
   }
 
@@ -119,6 +119,7 @@ export class App {
     this.player.querySelector(".toolbar-title")!.textContent = entry.name;
     this.library.element.classList.add("hidden");
     this.player.classList.remove("hidden");
+    this.applyLayout();
     this.screen.fit();
     this.audio.clear();
     this.emulator.load(rom, save, null);
@@ -154,6 +155,56 @@ export class App {
       this.toast(`State ${slot} saved`);
     });
     this.emulator.on("error", (message) => this.toast(message));
+  }
+
+  // Controller toggle: detection drives the button; the button drives the input.
+  private wireController() {
+    this.input.onGamepads = (state) => {
+      this.controller.update(state);
+      this.input.setMapping(this.mappingFor(this.input.activeGamepadId()));
+      if (state.enabled && state.active !== null) this.toast("Controller connected");
+    };
+    this.controller.onToggle = (enabled) => this.input.setGamepadEnabled(enabled);
+    this.controller.onSelect = (index) => this.input.setActiveGamepad(index);
+    this.controller.onNothingDetected = () =>
+      this.toast("No controller detected — press a button on it to wake it up");
+    this.controller.onSettings = () => {
+      const id = this.input.activeGamepadId();
+      const name = id ? id.replace(/\s*\(.*$/, "") : "No controller connected";
+      this.pauseForDialog(true);
+      this.controllerSettings.open(name, this.mappingFor(id));
+    };
+    this.controllerSettings.captureButton = () => this.input.captureButton();
+    this.controllerSettings.onChange = (mapping) => {
+      const id = this.input.activeGamepadId();
+      if (id) {
+        this.settings = {
+          ...this.settings,
+          controllerMappings: { ...this.settings.controllerMappings, [id]: mapping },
+        };
+        void storage.saveSettings(this.settings);
+      }
+      this.input.setMapping(mapping);
+    };
+    this.controllerSettings.onClose = () => this.pauseForDialog(false);
+    this.controller.update(this.input.gamepadState());
+  }
+
+  private mappingFor(id: string | null): ControllerMapping {
+    return (id && this.settings.controllerMappings[id]) || DEFAULT_MAPPING;
+  }
+
+  /** Dialogs pause the game, unless the player had paused it already. */
+  private dialogPaused = false;
+  private pauseForDialog(open: boolean) {
+    if (!this.current) return;
+    if (open && !this.paused) {
+      this.emulator.pause();
+      this.dialogPaused = true;
+    } else if (!open && this.dialogPaused) {
+      this.emulator.run();
+      this.dialogPaused = false;
+    }
   }
 
   private flushSave() {
@@ -198,7 +249,7 @@ export class App {
     const menu = this.player.querySelector<HTMLDivElement>(".menu")!;
     this.player.addEventListener("click", async (e) => {
       const button = (e.target as HTMLElement).closest<HTMLElement>("[data-action]");
-      if (!button) return;
+      if (!button || button.closest(".modal-backdrop")) return;
       const slot = Number(button.dataset["slot"] ?? 0);
       switch (button.dataset["action"]) {
         case "back":
@@ -258,22 +309,27 @@ export class App {
   }
 
   private wireSettings() {
-    for (const el of this.player.querySelectorAll<HTMLInputElement>("[data-setting]")) {
+    for (const el of this.player.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-setting]")) {
       const key = el.dataset["setting"] as keyof Settings;
-      el.addEventListener("input", () => {
-        const value = el.type === "checkbox" ? el.checked : Number(el.value);
+      const handler = () => {
+        const value =
+          el instanceof HTMLSelectElement ? el.value
+          : el.type === "checkbox" ? el.checked
+          : Number(el.value);
         this.settings = { ...this.settings, [key]: value };
         this.applySettings();
         void storage.saveSettings(this.settings);
-      });
+      };
+      el.addEventListener(el instanceof HTMLSelectElement ? "change" : "input", handler);
     }
   }
 
   private applySettings() {
-    for (const el of this.player.querySelectorAll<HTMLInputElement>("[data-setting]")) {
+    for (const el of this.player.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-setting]")) {
       const key = el.dataset["setting"] as keyof Settings;
       const value = this.settings[key];
-      if (el.type === "checkbox") el.checked = Boolean(value);
+      if (el instanceof HTMLSelectElement) el.value = String(value);
+      else if (el.type === "checkbox") el.checked = Boolean(value);
       else el.value = String(value);
     }
     this.player.querySelector(".rewind-label")!.textContent =
@@ -281,6 +337,17 @@ export class App {
     this.emulator.setRewindSeconds(this.settings.rewindSeconds);
     this.audio.setVolume(this.settings.volume);
     this.screen.setIntegerScale(this.settings.integerScale);
-    this.player.classList.toggle("force-touch", this.settings.alwaysShowTouch);
+    this.applyLayout();
+  }
+
+  /** Resolves the touch layout for the current orientation and shows the controls. */
+  private applyLayout() {
+    const landscape = matchMedia("(orientation: landscape)").matches;
+    const coarse = matchMedia("(pointer: coarse)").matches;
+    const chosen: TouchLayout = this.settings.touchLayout;
+    const layout = chosen === "auto" ? (landscape ? "gba" : "gbasp") : chosen;
+    this.player.dataset["layout"] = layout;
+    this.player.classList.toggle("touch-on", coarse || this.settings.alwaysShowTouch);
+    this.screen.fit();
   }
 }

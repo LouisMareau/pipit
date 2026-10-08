@@ -4,8 +4,11 @@
 // exposes a pad after a button is pressed on it). One pad is *active* at a time
 // and contributes only while controller input is enabled; the keyboard always
 // works. The first pad detected switches controller input on automatically.
+// Each pad reads through a mapping (GBA key → button index) that the user can
+// change in the controller settings.
 
-import { Key } from "../types";
+import type { ControllerMapping, KeyName } from "../types";
+import { DEFAULT_MAPPING, Key } from "../types";
 
 const KEYBOARD: Record<string, number> = {
   KeyZ: Key.A,
@@ -23,24 +26,6 @@ const KEYBOARD: Record<string, number> = {
   KeyW: Key.R,
 };
 
-/** Standard gamepad mapping: button index → GBA key. */
-const GAMEPAD_BUTTONS: Record<number, number> = {
-  0: Key.A, // A / Cross
-  1: Key.B, // B / Circle
-  2: Key.B, // X / Square (also B, handy on Nintendo-style pads)
-  3: Key.A,
-  4: Key.L,
-  5: Key.R,
-  6: Key.L,
-  7: Key.R,
-  8: Key.Select,
-  9: Key.Start,
-  12: Key.Up,
-  13: Key.Down,
-  14: Key.Left,
-  15: Key.Right,
-};
-
 export interface GamepadInfo {
   index: number;
   id: string;
@@ -55,6 +40,12 @@ export interface GamepadState {
   enabled: boolean;
 }
 
+/** A pending "press a button" request from the remapping screen. */
+export interface ButtonCapture {
+  promise: Promise<number | null>;
+  cancel(): void;
+}
+
 export class Input {
   private keyboard = 0;
   private touch = 0;
@@ -65,6 +56,8 @@ export class Input {
   private detected: GamepadInfo[] = [];
   private active: number | null = null;
   private enabled = false;
+  private mapping: ControllerMapping = DEFAULT_MAPPING;
+  private capture: { resolve: (button: number | null) => void; previous: boolean[] } | null = null;
   readonly fastForwardKey = "Space";
   readonly rewindKey = "KeyR";
   onChange: (keys: number) => void = () => {};
@@ -122,6 +115,17 @@ export class Input {
     return { detected: [...this.detected], active: this.active, enabled: this.enabled };
   }
 
+  /** The id of the active controller, used to look up its mapping. */
+  activeGamepadId(): string | null {
+    return this.detected.find((p) => p.index === this.active)?.id ?? null;
+  }
+
+  setMapping(mapping: ControllerMapping) {
+    this.mapping = mapping;
+    this.gamepad = 0;
+    this.emit();
+  }
+
   /** Switches controller input on or off without forgetting the active pad. */
   setGamepadEnabled(enabled: boolean) {
     this.enabled = enabled && this.active !== null;
@@ -138,6 +142,30 @@ export class Input {
     this.gamepad = 0;
     this.emit();
     this.onGamepads(this.gamepadState());
+  }
+
+  /**
+   * Waits for the next button pressed on the active controller. Game input from
+   * the controller is suspended until the capture ends.
+   */
+  captureButton(): ButtonCapture {
+    this.capture?.resolve(null);
+    const pad = this.active !== null ? navigator.getGamepads()[this.active] : null;
+    const previous = pad ? pad.buttons.map((b) => b.pressed) : [];
+    let resolve!: (button: number | null) => void;
+    const promise = new Promise<number | null>((r) => (resolve = r));
+    this.capture = { resolve, previous };
+    this.gamepad = 0;
+    this.emit();
+    return {
+      promise,
+      cancel: () => {
+        if (this.capture?.resolve === resolve) {
+          this.capture = null;
+          resolve(null);
+        }
+      },
+    };
   }
 
   /** Re-reads the list of controllers and keeps the active choice consistent. */
@@ -177,18 +205,32 @@ export class Input {
       this.pollTimer = requestAnimationFrame(poll);
       // Connection changes are not always announced; look every half second.
       if (++this.pollCount % 30 === 0) this.refreshGamepads();
+      const pad = this.active !== null ? navigator.getGamepads()[this.active] : null;
+      if (!pad) return;
+
+      if (this.capture) {
+        const pressed = pad.buttons.findIndex((b, i) => b.pressed && !this.capture!.previous[i]);
+        this.capture.previous = pad.buttons.map((b) => b.pressed);
+        if (pressed >= 0) {
+          const { resolve } = this.capture;
+          this.capture = null;
+          resolve(pressed);
+        }
+        return;
+      }
+
       let keys = 0;
-      const pad = this.enabled && this.active !== null ? navigator.getGamepads()[this.active] : null;
-      if (pad) {
-        pad.buttons.forEach((button, i) => {
-          const bit = GAMEPAD_BUTTONS[i];
-          if (bit !== undefined && button.pressed) keys |= bit;
-        });
-        const [x = 0, y = 0] = pad.axes;
-        if (x < -0.5) keys |= Key.Left;
-        if (x > 0.5) keys |= Key.Right;
-        if (y < -0.5) keys |= Key.Up;
-        if (y > 0.5) keys |= Key.Down;
+      if (this.enabled) {
+        for (const [name, index] of Object.entries(this.mapping.buttons) as [KeyName, number][]) {
+          if (pad.buttons[index]?.pressed) keys |= Key[name];
+        }
+        if (this.mapping.stickDpad) {
+          const [x = 0, y = 0] = pad.axes;
+          if (x < -0.5) keys |= Key.Left;
+          if (x > 0.5) keys |= Key.Right;
+          if (y < -0.5) keys |= Key.Up;
+          if (y > 0.5) keys |= Key.Down;
+        }
       }
       if (keys !== this.gamepad) {
         this.gamepad = keys;
