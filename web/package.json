@@ -9,7 +9,7 @@
     "dev": "npm run wasm && vite",
     "build": "npm run wasm && tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "npm run wasm && tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",

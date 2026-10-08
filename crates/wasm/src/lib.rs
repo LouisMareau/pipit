@@ -31,7 +31,8 @@ impl Emulator {
 
     /// Re-converts the current framebuffer to RGBA without running (after a state load).
     pub fn refresh_frame(&mut self) {
-        for (px, out) in self.gba.framebuffer().iter().zip(self.rgba.chunks_exact_mut(4)) {
+        let (pixels, _) = self.rgba.as_chunks_mut::<4>();
+        for (px, out) in self.gba.framebuffer().iter().zip(pixels) {
             out[0] = (px >> 16) as u8;
             out[1] = (px >> 8) as u8;
             out[2] = *px as u8;
