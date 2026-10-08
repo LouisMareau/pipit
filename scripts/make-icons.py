@@ -91,7 +91,29 @@ def write_png(path, size, rows):
     print(f"wrote {path} ({len(png)} bytes)")
 
 
+def write_ico(path, size, rows):
+    """ICO holding a single PNG-compressed image (Windows accepts PNG entries)."""
+    tmp = path.with_suffix(".tmp.png")
+    write_png(tmp, size, rows)
+    png = tmp.read_bytes()
+    tmp.unlink()
+    dim = 0 if size >= 256 else size
+    header = struct.pack("<HHH", 0, 1, 1)
+    entry = struct.pack("<BBBBHHII", dim, dim, 0, 0, 1, 32, len(png), 22)
+    path.write_bytes(header + entry + png)
+    print(f"wrote {path} ({len(png) + 22} bytes)")
+
+
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     write_png(OUT / "icon-192.png", 192, render(192, maskable=False))
     write_png(OUT / "icon-512.png", 512, render(512, maskable=True))
+
+    # Desktop (Tauri) icons.
+    desktop = Path(__file__).resolve().parent.parent / "desktop" / "src-tauri" / "icons"
+    desktop.mkdir(parents=True, exist_ok=True)
+    write_png(desktop / "32x32.png", 32, render(32, maskable=False))
+    write_png(desktop / "128x128.png", 128, render(128, maskable=False))
+    write_png(desktop / "128x128@2x.png", 256, render(256, maskable=False))
+    write_png(desktop / "icon.png", 512, render(512, maskable=False))
+    write_ico(desktop / "icon.ico", 256, render(256, maskable=False))

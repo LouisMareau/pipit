@@ -21,7 +21,7 @@ crates/   Rust workspace — the emulator
   wasm/   pipit-wasm  WebAssembly bindings for the web app
   cli/    pipit-cli   headless runner: tests, screenshots, benchmarks
 web/      The app (Vite + TypeScript PWA): ui/ features/ platform/
-desktop/  Tauri desktop shell (planned)
+desktop/  Tauri desktop shell around the web app (installers for Windows/macOS/Linux)
 tests/    Test ROM suites and expected results
 docs/     Architecture, GBA reference notes, compatibility list
 scripts/  Developer helper scripts
@@ -48,6 +48,9 @@ cargo run --release -p pipit-cli -- run game.gba --frames 600 --screenshot build
 
 # Web app (dev server with hot reload)
 cd web && npm install && npm run dev
+
+# Desktop app (installers land in build/target/release/bundle)
+cd desktop && npm install && npm run build
 ```
 
 ## Status

@@ -7,6 +7,7 @@
 //! paying their own timings.
 
 pub mod io;
+pub mod prefetch;
 
 use crate::audio::Audio;
 use crate::bios::Bios;
@@ -72,6 +73,8 @@ pub struct Bus {
     wait16: [[u8; 2]; 16],
     /// Cycles for a 32-bit access, indexed by `[region][sequential]`.
     wait32: [[u8; 2]; 16],
+    /// Game Pak prefetch buffer.
+    prefetch: prefetch::Prefetch,
 
     /// Last value seen on the bus; returned for reads of unmapped memory.
     pub open_bus: u32,
@@ -101,6 +104,7 @@ impl Bus {
             sio: [0; 0x30],
             wait16: [[1; 2]; 16],
             wait32: [[1; 2]; 16],
+            prefetch: prefetch::Prefetch::default(),
             open_bus: 0,
             bios_latch: 0xE129_F000,
             pc: 0,
@@ -151,28 +155,86 @@ impl Bus {
         self.wait32[region::SRAM_MIRROR as usize] = [sram, sram];
     }
 
-    /// Charges the cost of an 8/16-bit access at `addr`.
+    /// Charges the cost of an 8/16-bit data access at `addr`.
     #[inline(always)]
     pub fn wait16(&mut self, addr: u32, seq: bool) {
-        let c = self.wait16[(addr >> 24) as usize & 0xF][seq as usize];
-        self.scheduler.advance(u32::from(c));
+        let region = (addr >> 24) as usize & 0xF;
+        let c = u32::from(self.wait16[region][seq as usize]);
+        self.scheduler.advance(c);
+        if self.prefetch.active {
+            self.prefetch_after_data(region, c);
+        }
     }
 
-    /// Charges the cost of a 32-bit access at `addr`.
+    /// Charges the cost of a 32-bit data access at `addr`.
     #[inline(always)]
     pub fn wait32(&mut self, addr: u32, seq: bool) {
-        let c = self.wait32[(addr >> 24) as usize & 0xF][seq as usize];
-        self.scheduler.advance(u32::from(c));
+        let region = (addr >> 24) as usize & 0xF;
+        let c = u32::from(self.wait32[region][seq as usize]);
+        self.scheduler.advance(c);
+        if self.prefetch.active {
+            self.prefetch_after_data(region, c);
+        }
     }
 
-    /// Charges internal (I) cycles that touch no memory.
+    /// Charges internal (I) cycles that touch no memory; the prefetcher uses them.
     #[inline(always)]
     pub fn idle(&mut self, cycles: u32) {
         self.scheduler.advance(cycles);
+        self.prefetch.advance(cycles);
+    }
+
+    #[inline(always)]
+    fn prefetch_after_data(&mut self, region: usize, cycles: u32) {
+        if region >= region::ROM0 as usize {
+            // The Game Pak bus was busy with data: whatever was prefetched is lost.
+            self.prefetch.reset();
+        } else {
+            self.prefetch.advance(cycles);
+        }
+    }
+
+    /// Charges a Thumb opcode fetch at `addr`: through the prefetch buffer for the
+    /// Game Pak, plain wait states elsewhere.
+    #[inline(always)]
+    fn fetch_wait16(&mut self, addr: u32, seq: bool) {
+        let region = (addr >> 24) as usize & 0xF;
+        if (region::ROM0 as usize..=region::ROM2_HI as usize).contains(&region) {
+            let [n, s] = self.wait16[region];
+            let c = self.prefetch.fetch(addr, u32::from(n), u32::from(s));
+            self.scheduler.advance(c);
+        } else {
+            self.prefetch.active = false;
+            self.scheduler.advance(u32::from(self.wait16[region][seq as usize]));
+        }
+    }
+
+    /// Charges an ARM opcode fetch at `addr` (two halfwords on the Game Pak bus).
+    #[inline(always)]
+    fn fetch_wait32(&mut self, addr: u32, seq: bool) {
+        let region = (addr >> 24) as usize & 0xF;
+        if (region::ROM0 as usize..=region::ROM2_HI as usize).contains(&region) {
+            let [n, s] = self.wait16[region];
+            let c = self.prefetch.fetch_word(addr, u32::from(n), u32::from(s));
+            self.scheduler.advance(c);
+        } else {
+            self.prefetch.active = false;
+            self.scheduler.advance(u32::from(self.wait32[region][seq as usize]));
+        }
     }
 
     pub fn waitcnt(&self) -> u16 {
         self.waitcnt
+    }
+
+    /// Aborts the prefetch buffer (DMA).
+    pub(crate) fn prefetch_reset(&mut self) {
+        self.prefetch.reset();
+    }
+
+    fn set_prefetch_enabled(&mut self, enabled: bool) {
+        self.prefetch.enabled = enabled;
+        self.prefetch.reset();
     }
 
     // ---------------------------------------------------------------------------
@@ -218,7 +280,7 @@ impl Bus {
     /// Fetches an ARM opcode.
     #[inline]
     pub fn fetch32(&mut self, addr: u32, seq: bool) -> u32 {
-        self.wait32(addr, seq);
+        self.fetch_wait32(addr, seq);
         // Fetching from an address means executing there, which is what the BIOS
         // read protection keys on (an exception vector fetch must not be blocked).
         self.pc = addr;
@@ -233,7 +295,7 @@ impl Bus {
     /// Fetches a Thumb opcode.
     #[inline]
     pub fn fetch16(&mut self, addr: u32, seq: bool) -> u16 {
-        self.wait16(addr, seq);
+        self.fetch_wait16(addr, seq);
         self.pc = addr;
         let op = self.load16(addr);
         // Open-bus value after a Thumb fetch: the opcode in both halves is a good

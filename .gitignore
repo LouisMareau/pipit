@@ -5,6 +5,9 @@
 node_modules/
 Cargo.lock.bak
 
+# Tauri writes generated schemas next to its config
+/desktop/src-tauri/gen/
+
 # Game files are never committed. Test suites are cloned into tests/roms by scripts/fetch-test-roms.
 /tests/roms/
 *.gba

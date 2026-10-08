@@ -193,8 +193,8 @@ impl Bus {
         if n == 3 && self.cart.is_eeprom_addr(ch.dst) || self.cart.is_eeprom_addr(ch.src) {
             self.cart.eeprom_dma_hint(count);
         }
-        // Reading ROM through DMA aborts any instruction prefetch in progress.
-        self.cart.prefetch_reset();
+        // DMA owns the bus: any instruction prefetch in progress is lost.
+        self.prefetch_reset();
 
         // 2 internal cycles to start; 2 more when both ends are in the cartridge.
         let src_rom = (0x08..=0x0D).contains(&(ch.src >> 24));

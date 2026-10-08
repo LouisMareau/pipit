@@ -15,8 +15,9 @@ Checked items are done and covered by tests.
 - [x] RTC
 - [x] Open-bus behaviour (`gba-tests/unsafe`)
 - [x] Save states (exact: restored runs continue bit-identically)
-- [ ] ROM prefetch buffer timing
+- [x] ROM prefetch buffer timing
 - [ ] Cheat codes (GameShark / CodeBreaker)
+- [ ] Link cable (serial) — not planned for now
 
 ## Web app
 
@@ -35,4 +36,6 @@ Checked items are done and covered by tests.
 
 ## Desktop
 
-- [ ] Tauri shell
+- [x] Tauri shell (`desktop/`, installers via `npm run build`)
+- [ ] Native file associations (.gba double-click)
+- [ ] Code-signed releases

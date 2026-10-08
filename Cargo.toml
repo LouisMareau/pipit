@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = ["crates/gba", "crates/wasm", "crates/cli"]
+# The desktop shell is its own Cargo project: Tauri's dependency tree stays out
+# of the core's builds and tests.
+exclude = ["desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

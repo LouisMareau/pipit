@@ -71,6 +71,8 @@ pub struct Cpu {
     flushed: bool,
     /// An HLE IntrWait is in progress: the SWI re-executes after each interrupt.
     pub(crate) intr_wait_continuing: bool,
+    /// Instructions executed since reset (statistics; not timing).
+    pub instructions: u64,
 }
 
 impl Default for Cpu {
@@ -91,6 +93,7 @@ impl Cpu {
             next_seq: false,
             flushed: false,
             intr_wait_continuing: false,
+            instructions: 0,
         }
     }
 
@@ -328,6 +331,7 @@ impl Cpu {
         let seq = self.next_seq;
         self.next_seq = true;
         self.flushed = false;
+        self.instructions += 1;
         let opcode = self.pipeline[0];
         self.pipeline[0] = self.pipeline[1];
         if self.is_thumb() {

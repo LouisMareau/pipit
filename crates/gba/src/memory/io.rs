@@ -101,7 +101,7 @@ impl Bus {
             WAITCNT => {
                 self.waitcnt = (self.waitcnt & !mask) | (value & mask & 0x5FFF);
                 self.update_wait_states();
-                self.cart.set_prefetch_enabled(self.waitcnt & (1 << 14) != 0);
+                self.set_prefetch_enabled(self.waitcnt & (1 << 14) != 0);
             }
             POSTFLG => {
                 if mask & 0x00FF != 0 {

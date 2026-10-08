@@ -37,7 +37,6 @@ pub struct Cartridge {
     backup: Backup,
     save_type: SaveType,
     dirty: bool,
-    prefetch_enabled: bool,
     /// GPIO port (RTC). Always present: a game that never enables it just sees ROM.
     gpio: Gpio,
     /// Scheduler time of the latest access, for the clock.
@@ -59,15 +58,7 @@ impl Cartridge {
             SaveType::Flash128K => Backup::Flash(Flash::new(true)),
             SaveType::Eeprom => Backup::Eeprom(Eeprom::new()),
         };
-        Self {
-            rom,
-            backup,
-            save_type,
-            dirty: false,
-            prefetch_enabled: false,
-            gpio: Gpio::new(),
-            now: 0,
-        }
+        Self { rom, backup, save_type, dirty: false, gpio: Gpio::new(), now: 0 }
     }
 
     /// Moves the ROM out of `other` (restoring a save state keeps the loaded ROM).
@@ -185,14 +176,6 @@ impl Cartridge {
             e.dma_hint(count);
         }
     }
-
-    pub fn set_prefetch_enabled(&mut self, enabled: bool) {
-        self.prefetch_enabled = enabled;
-    }
-
-    /// Any ROM access that is not sequential code (DMA, data reads) empties the
-    /// prefetch buffer. The buffer itself is modelled by the bus.
-    pub fn prefetch_reset(&mut self) {}
 
     // ---------------------------------------------------------------------------
     // Backup memory (0x0E000000 region)

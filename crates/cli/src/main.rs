@@ -115,6 +115,8 @@ fn main() -> Result<()> {
             }
             let secs = start.elapsed().as_secs_f64();
             let fps = f64::from(frames) / secs;
+            let per_frame = gba.cpu.instructions / u64::from(frames);
+            println!("{per_frame} instructions per frame");
             println!(
                 "{frames} frames in {secs:.2}s = {fps:.0} fps ({:.1}x real time)",
                 fps / 59.73
