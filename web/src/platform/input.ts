@@ -1,4 +1,9 @@
-// Keyboard and gamepad input, merged into one GBA key bit set.
+// Keyboard, controller and touch input, merged into one GBA key bit set.
+//
+// Controllers: the browser reports them through the Gamepad API (Chrome only
+// exposes a pad after a button is pressed on it). One pad is *active* at a time
+// and contributes only while controller input is enabled; the keyboard always
+// works. The first pad detected switches controller input on automatically.
 
 import { Key } from "../types";
 
@@ -36,17 +41,36 @@ const GAMEPAD_BUTTONS: Record<number, number> = {
   15: Key.Right,
 };
 
+export interface GamepadInfo {
+  index: number;
+  id: string;
+}
+
+export interface GamepadState {
+  /** Controllers the browser currently reports. */
+  detected: GamepadInfo[];
+  /** Index (into the Gamepad API) of the controller being read, if any. */
+  active: number | null;
+  /** Whether the active controller's input is used at all. */
+  enabled: boolean;
+}
+
 export class Input {
   private keyboard = 0;
   private touch = 0;
   private gamepad = 0;
   private last = -1;
   private pollTimer: number | null = null;
+  private pollCount = 0;
+  private detected: GamepadInfo[] = [];
+  private active: number | null = null;
+  private enabled = false;
   readonly fastForwardKey = "Space";
   readonly rewindKey = "KeyR";
   onChange: (keys: number) => void = () => {};
   onFastForward: (held: boolean) => void = () => {};
   onRewind: (held: boolean) => void = () => {};
+  onGamepads: (state: GamepadState) => void = () => {};
 
   attach(target: Window) {
     target.addEventListener("keydown", (e) => {
@@ -84,8 +108,9 @@ export class Input {
       this.keyboard = 0;
       this.emit();
     });
-    target.addEventListener("gamepadconnected", () => this.startPolling());
-    if (navigator.getGamepads?.().some(Boolean)) this.startPolling();
+    target.addEventListener("gamepadconnected", () => this.refreshGamepads());
+    target.addEventListener("gamepaddisconnected", () => this.refreshGamepads());
+    this.refreshGamepads();
   }
 
   setTouch(keys: number) {
@@ -93,12 +118,68 @@ export class Input {
     this.emit();
   }
 
+  gamepadState(): GamepadState {
+    return { detected: [...this.detected], active: this.active, enabled: this.enabled };
+  }
+
+  /** Switches controller input on or off without forgetting the active pad. */
+  setGamepadEnabled(enabled: boolean) {
+    this.enabled = enabled && this.active !== null;
+    this.gamepad = 0;
+    this.emit();
+    this.onGamepads(this.gamepadState());
+  }
+
+  /** Makes the given controller the one being read, and keeps input enabled. */
+  setActiveGamepad(index: number) {
+    if (!this.detected.some((p) => p.index === index)) return;
+    this.active = index;
+    this.enabled = true;
+    this.gamepad = 0;
+    this.emit();
+    this.onGamepads(this.gamepadState());
+  }
+
+  /** Re-reads the list of controllers and keeps the active choice consistent. */
+  private refreshGamepads() {
+    const pads = navigator.getGamepads?.() ?? [];
+    const detected: GamepadInfo[] = [];
+    for (const pad of pads) if (pad) detected.push({ index: pad.index, id: pad.id });
+
+    const same =
+      detected.length === this.detected.length &&
+      detected.every((p, i) => p.index === this.detected[i]?.index && p.id === this.detected[i]?.id);
+    if (same) return;
+    this.detected = detected;
+
+    if (this.active !== null && !detected.some((p) => p.index === this.active)) {
+      this.active = null;
+    }
+    if (this.active === null && detected.length > 0) {
+      // A controller appeared: it becomes the input device.
+      this.active = detected[0]!.index;
+      this.enabled = true;
+    }
+    if (detected.length === 0) {
+      this.enabled = false;
+      this.gamepad = 0;
+      this.emit();
+      this.stopPolling();
+    } else {
+      this.startPolling();
+    }
+    this.onGamepads(this.gamepadState());
+  }
+
   private startPolling() {
     if (this.pollTimer !== null) return;
     const poll = () => {
+      this.pollTimer = requestAnimationFrame(poll);
+      // Connection changes are not always announced; look every half second.
+      if (++this.pollCount % 30 === 0) this.refreshGamepads();
       let keys = 0;
-      for (const pad of navigator.getGamepads()) {
-        if (!pad) continue;
+      const pad = this.enabled && this.active !== null ? navigator.getGamepads()[this.active] : null;
+      if (pad) {
         pad.buttons.forEach((button, i) => {
           const bit = GAMEPAD_BUTTONS[i];
           if (bit !== undefined && button.pressed) keys |= bit;
@@ -113,9 +194,13 @@ export class Input {
         this.gamepad = keys;
         this.emit();
       }
-      this.pollTimer = requestAnimationFrame(poll);
     };
     this.pollTimer = requestAnimationFrame(poll);
+  }
+
+  private stopPolling() {
+    if (this.pollTimer !== null) cancelAnimationFrame(this.pollTimer);
+    this.pollTimer = null;
   }
 
   private emit() {

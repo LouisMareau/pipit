@@ -23,7 +23,7 @@ Checked items are done and covered by tests.
 
 - [x] Load a ROM from the device, play with keyboard
 - [x] Touch controls (built; needs a round of testing on real phones)
-- [x] Gamepad support
+- [x] Controller support: auto-detect, toolbar toggle (click = on/off, hold = pick among several)
 - [x] Audio output (AudioWorklet)
 - [x] Save data persistence (IndexedDB), .sav export/import
 - [x] Fast-forward, screenshots

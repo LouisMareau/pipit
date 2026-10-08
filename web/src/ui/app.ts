@@ -8,6 +8,7 @@ import { Input } from "../platform/input";
 import * as storage from "../platform/storage";
 import type { RomEntry, Settings } from "../types";
 import { STATE_SLOTS } from "../types";
+import { ControllerToggle } from "./controller-toggle";
 import { Library } from "./library";
 import { Screen } from "./screen";
 import { TouchControls } from "./touch-controls";
@@ -18,6 +19,7 @@ export class App {
   private player: HTMLDivElement;
   private screen: Screen;
   private touch = new TouchControls();
+  private controller = new ControllerToggle();
   private emulator: EmulatorClient;
   private audio = new AudioOutput();
   private input = new Input();
@@ -41,6 +43,7 @@ export class App {
         <span class="toolbar-title"></span>
         <span class="toolbar-fps muted small"></span>
         <span class="toolbar-spacer"></span>
+        <span class="toolbar-controller"></span>
         <button class="btn btn-icon" data-action="pause" title="Pause (P)">❚❚</button>
         <button class="btn btn-icon" data-action="fast" title="Fast-forward (hold Space)">»</button>
         <button class="btn btn-icon" data-action="shot" title="Screenshot">📷</button>
@@ -64,6 +67,7 @@ export class App {
       </div>`;
     this.screen = new Screen();
     this.player.querySelector(".screen-box")!.append(this.screen.element);
+    this.player.querySelector(".toolbar-controller")!.append(this.controller.element);
     this.player.append(this.touch.element);
     this.root.append(this.library.element, this.player);
 
@@ -78,6 +82,17 @@ export class App {
     this.input.onRewind = (held) => this.emulator.setRewind(held);
     this.touch.onChange = (keys) => this.input.setTouch(keys);
     this.touch.onRewind = (held) => this.emulator.setRewind(held);
+
+    // Controller toggle: detection drives the button; the button drives the input.
+    this.input.onGamepads = (state) => {
+      this.controller.update(state);
+      if (state.enabled && state.active !== null) this.toast("Controller connected");
+    };
+    this.controller.onToggle = (enabled) => this.input.setGamepadEnabled(enabled);
+    this.controller.onSelect = (index) => this.input.setActiveGamepad(index);
+    this.controller.onNothingDetected = () =>
+      this.toast("No controller detected — press a button on it to wake it up");
+    this.controller.update(this.input.gamepadState());
 
     // Audio can only start from a user gesture.
     const unlock = () => this.audio.resume();

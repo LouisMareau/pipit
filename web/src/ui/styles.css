@@ -392,6 +392,81 @@ body {
   align-items: center;
 }
 
+/* Controller toggle ------------------------------------------------------- */
+
+.controller {
+  display: flex;
+  align-items: stretch;
+}
+
+.controller-toggle {
+  position: relative;
+  opacity: 0.55; /* grayed-out: no controller, or controller input off */
+  --hold: 0;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.controller-toggle.active {
+  opacity: 1;
+}
+
+/* The hold indicator: a ring just inside the border that fills clockwise. */
+.controller-toggle::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  padding: 3px;
+  background: conic-gradient(var(--accent) calc(var(--hold) * 1turn), transparent 0);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.controller-toggle.holding::before {
+  opacity: 1;
+}
+
+.controller-toggle.active.holding::before {
+  background: conic-gradient(var(--accent-ink) calc(var(--hold) * 1turn), transparent 0);
+}
+
+.controller.open .controller-toggle {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.controller-picker {
+  display: flex;
+  align-items: center;
+  padding: 0 6px 0 8px;
+  background: var(--surface-2);
+  border-left: 1px solid var(--bg);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.controller-select {
+  max-width: 220px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.controller-select option {
+  background: var(--surface);
+}
+
 .dpad {
   position: relative;
   width: calc(var(--touch-size) * 2.3);

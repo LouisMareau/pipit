@@ -153,6 +153,40 @@ await evaluate("document.querySelector('.rom-main').click(); true");
 await sleep(4000);
 
 const fps = await evaluate("document.querySelector('.toolbar-fps').textContent");
+// No controller in a headless browser: the toggle renders gray but clickable.
+const controller = await evaluate(`(() => {
+  const b = document.querySelector('.controller-toggle');
+  return b ? { present: true, active: b.classList.contains('active'), disabled: b.disabled } : { present: false };
+})()`);
+console.log(`controller toggle: ${JSON.stringify(controller)}`);
+
+// Holding the toggle for two seconds opens the controller picker without toggling.
+const toggleBox = await evaluate(`(() => {
+  const r = document.querySelector('.controller-toggle').getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+})()`);
+const mouse = (type) =>
+  send("Input.dispatchMouseEvent", { type, x: toggleBox.x, y: toggleBox.y, button: "left", clickCount: 1 });
+await mouse("mouseMoved");
+await mouse("mousePressed");
+await sleep(1200);
+if (process.env.PIPIT_SMOKE_HOLD_SHOT) {
+  // Debug aid: capture the hold ring halfway through filling.
+  const mid = await send("Page.captureScreenshot", {
+    format: "png",
+    clip: { x: toggleBox.x - 120, y: toggleBox.y - 24, width: 400, height: 48, scale: 3 },
+  });
+  writeFileSync(process.env.PIPIT_SMOKE_HOLD_SHOT, Buffer.from(mid.data, "base64"));
+}
+await sleep(1100);
+await mouse("mouseReleased");
+await sleep(200);
+const picker = await evaluate(`(() => {
+  const p = document.querySelector('.controller-picker');
+  const options = Array.from(document.querySelectorAll('.controller-select option')).map((o) => o.textContent);
+  return { open: !p.classList.contains('hidden'), options };
+})()`);
+console.log(`controller picker after hold: ${JSON.stringify(picker)}`);
 const litPixels = await evaluate(`(() => {
   const c = document.querySelector('canvas');
   const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
@@ -189,7 +223,12 @@ if (
   litPixels === 0 ||
   !/\d+ fps/.test(fps) ||
   savedToast !== "State 1 saved" ||
-  loadedToast !== "State 1 loaded"
+  loadedToast !== "State 1 loaded" ||
+  !controller.present ||
+  controller.active ||
+  controller.disabled ||
+  !picker.open ||
+  picker.options[0] !== "No controller detected"
 ) {
   console.error("SMOKE TEST FAILED");
   process.exit(1);
