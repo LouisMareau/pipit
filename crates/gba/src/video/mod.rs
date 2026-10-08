@@ -9,6 +9,7 @@ use crate::dma::{Dma, Timing};
 use crate::irq::{Interrupt, Irq};
 use crate::scheduler::{Event, Scheduler};
 use crate::{SCREEN_HEIGHT, SCREEN_WIDTH};
+use serde::{Deserialize, Serialize};
 
 pub const PALETTE_SIZE: usize = 0x400;
 pub const VRAM_SIZE: usize = 0x18000;
@@ -21,6 +22,7 @@ pub const HBLANK_START: u64 = 1006;
 pub const LINES_PER_FRAME: u16 = 228;
 pub const VBLANK_LINE: u16 = 160;
 
+#[derive(Serialize, Deserialize)]
 pub struct Video {
     pub dispcnt: u16,
     pub dispstat: u16,
@@ -48,12 +50,17 @@ pub struct Video {
     pub bldalpha: u16,
     pub bldy: u16,
 
+    #[serde(with = "crate::snapshot::bytes_box")]
     pub palette: Box<[u8; PALETTE_SIZE]>,
+    #[serde(with = "crate::snapshot::bytes_box")]
     pub vram: Box<[u8; VRAM_SIZE]>,
+    #[serde(with = "crate::snapshot::bytes_box")]
     pub oam: Box<[u8; OAM_SIZE]>,
 
+    #[serde(with = "crate::snapshot::words_box")]
     framebuffer: Box<[u32; SCREEN_WIDTH * SCREEN_HEIGHT]>,
     frame_ready: bool,
+    #[serde(skip)]
     scratch: render::Scratch,
 }
 

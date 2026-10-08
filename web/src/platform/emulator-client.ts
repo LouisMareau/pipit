@@ -6,6 +6,7 @@ type Handlers = {
   frame: (pixels: ArrayBuffer, audio: ArrayBuffer, fps: number) => void;
   loaded: (title: string, gameCode: string) => void;
   save: (data: ArrayBuffer) => void;
+  state: (slot: number, data: ArrayBuffer) => void;
   error: (message: string) => void;
 };
 
@@ -13,8 +14,10 @@ export class EmulatorClient {
   private worker: Worker;
   private handlers: Partial<Handlers> = {};
 
-  constructor() {
+  constructor(rewindSeconds: number) {
+    // Vite only bundles workers it can see statically, so this exact form matters.
     this.worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+    this.send({ type: "config", rewindSeconds });
     this.worker.onmessage = (event: MessageEvent<FromWorker>) => {
       const msg = event.data;
       switch (msg.type) {
@@ -26,6 +29,9 @@ export class EmulatorClient {
           break;
         case "save":
           this.handlers.save?.(msg.data);
+          break;
+        case "state":
+          this.handlers.state?.(msg.slot, msg.data);
           break;
         case "error":
           this.handlers.error?.(msg.message);
@@ -64,8 +70,25 @@ export class EmulatorClient {
     this.send({ type: "fastForward", enabled });
   }
 
+  setRewind(enabled: boolean) {
+    this.send({ type: "rewind", enabled });
+  }
+
+  setRewindSeconds(seconds: number) {
+    this.send({ type: "config", rewindSeconds: seconds });
+  }
+
   requestSave() {
     this.send({ type: "requestSave" });
+  }
+
+  /** Asks for a save state; it arrives through the `state` handler with the slot. */
+  saveState(slot: number) {
+    this.send({ type: "saveState", slot });
+  }
+
+  loadState(data: ArrayBuffer) {
+    this.send({ type: "loadState", data }, [data]);
   }
 
   /** Hands a drawn frame buffer back to the worker for reuse. */

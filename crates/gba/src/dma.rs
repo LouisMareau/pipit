@@ -5,6 +5,7 @@
 
 use crate::irq::Interrupt;
 use crate::memory::Bus;
+use serde::{Deserialize, Serialize};
 
 /// What starts a transfer (control bits 12-13).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,7 +17,7 @@ pub enum Timing {
     Special = 3,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Channel {
     pub sad: u32,
     pub dad: u32,
@@ -52,7 +53,7 @@ impl Channel {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Dma {
     pub channels: [Channel; 4],
     /// Last value transferred; reads of open bus by DMA return it.

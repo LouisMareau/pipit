@@ -8,11 +8,12 @@ mod gpio;
 use self::eeprom::Eeprom;
 use self::flash::Flash;
 use self::gpio::Gpio;
+use serde::{Deserialize, Serialize};
 
 pub const MAX_ROM_SIZE: usize = 32 * 1024 * 1024;
 
 /// Kind of backup memory on the cartridge.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SaveType {
     None,
     Sram,
@@ -21,14 +22,17 @@ pub enum SaveType {
     Eeprom,
 }
 
+#[derive(Serialize, Deserialize)]
 enum Backup {
     None,
-    Sram(Box<[u8; 0x8000]>),
+    Sram(#[serde(with = "crate::snapshot::bytes_box")] Box<[u8; 0x8000]>),
     Flash(Flash),
     Eeprom(Eeprom),
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Cartridge {
+    #[serde(skip)]
     rom: Vec<u8>,
     backup: Backup,
     save_type: SaveType,
@@ -64,6 +68,11 @@ impl Cartridge {
             gpio: Gpio::new(),
             now: 0,
         }
+    }
+
+    /// Moves the ROM out of `other` (restoring a save state keeps the loaded ROM).
+    pub(crate) fn take_rom_from(&mut self, other: &mut Cartridge) {
+        self.rom = std::mem::take(&mut other.rom);
     }
 
     pub fn save_type(&self) -> SaveType {

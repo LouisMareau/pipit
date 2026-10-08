@@ -3,9 +3,11 @@
 //! Games talk to the chip with a command sequence (`AA` to 0x5555, `55` to 0x2AAA,
 //! then the command). 128 KB chips expose two 64 KB banks selected by command 0xB0.
 
+use serde::{Deserialize, Serialize};
+
 const SECTOR_SIZE: usize = 0x1000;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum State {
     Ready,
     /// Received 0xAA at 0x5555.
@@ -22,6 +24,7 @@ enum State {
     Bank,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Flash {
     data: Vec<u8>,
     bank: usize,

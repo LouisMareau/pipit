@@ -5,6 +5,8 @@
 //! bit-bang the S-3511A clock chip over them: chip select, clock and a
 //! bidirectional data line.
 
+use serde::{Deserialize, Serialize};
+
 /// GBA clock rate, for advancing the clock with emulated time.
 const CYCLES_PER_SECOND: u64 = crate::CLOCK_HZ as u64;
 
@@ -12,7 +14,7 @@ const PIN_SCK: u8 = 1 << 0;
 const PIN_SIO: u8 = 1 << 1;
 const PIN_CS: u8 = 1 << 2;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum Phase {
     /// Chip select low: nothing happening.
     Idle,
@@ -22,6 +24,7 @@ enum Phase {
     Data,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Gpio {
     data: u8,
     /// Bit set = pin driven by the GBA.
@@ -81,6 +84,7 @@ impl Gpio {
 }
 
 /// Seiko S-3511A real-time clock.
+#[derive(Serialize, Deserialize)]
 struct Rtc {
     phase: Phase,
     last_sck: bool,

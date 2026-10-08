@@ -341,6 +341,57 @@ body {
   text-transform: uppercase;
 }
 
+.tbtn-rewind {
+  width: 44px;
+  font-size: 18px;
+}
+
+/* Transient notices (state saved, errors) */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  animation: toast 2.4s ease forwards;
+  pointer-events: none;
+}
+
+@keyframes toast {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  10%,
+  80% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.menu h4 {
+  margin: 6px 0 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.menu .slots {
+  display: grid;
+  grid-template-columns: auto repeat(3, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
 .dpad {
   position: relative;
   width: calc(var(--touch-size) * 2.3);

@@ -4,7 +4,9 @@
 //! 16-bit writes whose low bit is the data, and a read returns 68 bits (4 dummy +
 //! 64 data). Address width is 6 bits for 512 B chips and 14 bits for 8 KB chips.
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum State {
     Idle,
     /// Receiving the request type bits (2), then the address.
@@ -18,6 +20,7 @@ enum State {
     ReadData,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Eeprom {
     data: Vec<u8>,
     /// Address bits, decided from the first DMA length. `None` until then.

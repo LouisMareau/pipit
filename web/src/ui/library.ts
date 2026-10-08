@@ -12,7 +12,7 @@ export class Library {
     this.element.className = "library";
     this.element.innerHTML = `
       <header class="library-header">
-        <h1><img src="/icons/icon.svg" alt="" width="36" height="36" /> Pipit</h1>
+        <h1><img src="${import.meta.env.BASE_URL}icons/icon.svg" alt="" width="36" height="36" /> Pipit</h1>
         <p class="muted">Your games stay on this device. Nothing is uploaded.</p>
       </header>
       <label class="add-rom">

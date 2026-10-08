@@ -5,8 +5,10 @@
 //! the mixer takes a sample, so nothing ticks per cycle. The 512 Hz frame
 //! sequencer drives length counters, envelopes and the sweep unit.
 
+use serde::{Deserialize, Serialize};
+
 /// Common envelope: 4-bit volume stepping up or down every `period` 64 Hz ticks.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
 struct Envelope {
     initial: u8,
     increase: bool,
@@ -49,7 +51,7 @@ impl Envelope {
 }
 
 /// Length counter shared by all channels: silences the channel when it expires.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
 struct Length {
     counter: u16,
     enabled: bool,
@@ -84,7 +86,7 @@ const DUTY: [[u8; 8]; 4] = [
     [0, 1, 1, 1, 1, 1, 1, 0],
 ];
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Square {
     enabled: bool,
     duty: u8,
@@ -214,7 +216,7 @@ impl Square {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Wave {
     enabled: bool,
     playing: bool,
@@ -316,7 +318,7 @@ impl Wave {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Noise {
     enabled: bool,
     envelope: Envelope,

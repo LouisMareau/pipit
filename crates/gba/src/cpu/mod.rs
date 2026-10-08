@@ -9,6 +9,7 @@ mod arm;
 mod thumb;
 
 use crate::memory::Bus;
+use serde::{Deserialize, Serialize};
 
 pub const FLAG_N: u32 = 1 << 31;
 pub const FLAG_Z: u32 = 1 << 30;
@@ -52,6 +53,7 @@ fn bank_of(mode: u32) -> usize {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Cpu {
     pub regs: [u32; 16],
     pub cpsr: u32,

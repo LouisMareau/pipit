@@ -1,5 +1,7 @@
 //! Interrupt controller: IE, IF, IME and the halt state (GBATEK "GBA Interrupt Control").
 
+use serde::{Deserialize, Serialize};
+
 /// Interrupt sources, as bit positions in IE / IF.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u16)]
@@ -30,7 +32,7 @@ impl Interrupt {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Irq {
     /// Interrupt Enable register (0x4000200).
     pub ie: u16,

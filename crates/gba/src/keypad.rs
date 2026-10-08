@@ -1,9 +1,10 @@
 //! Keypad input: KEYINPUT and KEYCNT (GBATEK "GBA Keypad Input").
 
 use crate::irq::{Interrupt, Irq};
+use serde::{Deserialize, Serialize};
 
 /// Pressed keys as a bit set. Bits follow the KEYINPUT layout, but here 1 = pressed.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Keys(pub u16);
 
 impl Keys {
@@ -38,7 +39,7 @@ impl std::ops::BitOrAssign for Keys {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Keypad {
     keys: Keys,
     /// KEYCNT (0x4000132): bits 0-9 key mask, bit 14 IRQ enable, bit 15 AND/OR condition.

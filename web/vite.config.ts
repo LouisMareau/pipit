@@ -6,7 +6,12 @@ import { VitePWA } from "vite-plugin-pwa";
 // the app imports them through the `@wasm` alias so nothing generated lives in src/.
 const wasmDir = fileURLToPath(new URL("../build/wasm", import.meta.url));
 
+// Where the app is served from. "/" for a domain root (Cloudflare Pages, a custom
+// domain); "/<repo>/" for a GitHub Pages project site. Set by the deploy workflow.
+const base = process.env.PIPIT_BASE ?? "/";
+
 export default defineConfig({
+  base,
   resolve: {
     alias: { "@wasm": wasmDir },
   },
@@ -33,7 +38,8 @@ export default defineConfig({
         background_color: "#14161c",
         display: "standalone",
         orientation: "any",
-        start_url: "/",
+        start_url: base,
+        scope: base,
         icons: [
           { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "icons/icon-512.png", sizes: "512x512", type: "image/png" },

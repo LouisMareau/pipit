@@ -8,8 +8,9 @@ use crate::audio::Audio;
 use crate::dma::Dma;
 use crate::irq::{Interrupt, Irq};
 use crate::scheduler::{Event, Scheduler};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
 struct Timer {
     /// TMxCNT_L write value: loaded into the counter on start and overflow.
     reload: u16,
@@ -58,7 +59,7 @@ impl Timer {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Timers {
     timers: [Timer; 4],
 }

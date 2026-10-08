@@ -8,6 +8,7 @@ mod psg;
 
 use crate::dma::Dma;
 use crate::scheduler::{Event, Scheduler};
+use serde::{Deserialize, Serialize};
 
 /// Output sample rate in Hz.
 pub const SAMPLE_RATE: u32 = 32_768;
@@ -16,7 +17,7 @@ const CYCLES_PER_SAMPLE: u64 = (crate::CLOCK_HZ / SAMPLE_RATE) as u64;
 const CYCLES_PER_SEQUENCER_STEP: u64 = (crate::CLOCK_HZ / 512) as u64;
 
 /// A 32-byte Direct Sound FIFO of signed 8-bit samples.
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 struct Fifo {
     data: [i8; 32],
     read: usize,
@@ -46,6 +47,7 @@ impl Fifo {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Audio {
     square1: psg::Square,
     square2: psg::Square,
@@ -55,6 +57,7 @@ pub struct Audio {
     regs: [u16; 0x18],
     fifo: [Fifo; 2],
     sequencer_step: u8,
+    #[serde(skip)]
     samples: Vec<i16>,
 }
 

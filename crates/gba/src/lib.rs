@@ -23,12 +23,16 @@ pub mod irq;
 pub mod keypad;
 pub mod memory;
 pub mod scheduler;
+pub mod snapshot;
 pub mod timers;
 pub mod video;
 
 pub use cartridge::{Cartridge, SaveType};
 pub use keypad::Keys;
 pub use memory::Bus;
+pub use snapshot::StateError;
+
+use serde::{Deserialize, Serialize};
 
 /// Screen width in pixels.
 pub const SCREEN_WIDTH: usize = 240;
@@ -40,6 +44,7 @@ pub const CLOCK_HZ: u32 = 16_777_216;
 pub const CYCLES_PER_FRAME: u32 = 280_896;
 
 /// A whole Game Boy Advance.
+#[derive(Serialize, Deserialize)]
 pub struct Gba {
     pub cpu: cpu::Cpu,
     pub bus: Bus,
@@ -103,6 +108,20 @@ impl Gba {
     /// Whether backup memory changed since the last call (for the front-end's autosave).
     pub fn take_save_dirty(&mut self) -> bool {
         self.bus.cart.take_save_dirty()
+    }
+
+    /// Serializes the complete machine state (everything except the ROM and BIOS).
+    pub fn save_state(&self) -> Vec<u8> {
+        snapshot::write(&self.game_code(), self)
+    }
+
+    /// Restores a state produced by `save_state` for the same game.
+    pub fn load_state(&mut self, data: &[u8]) -> Result<(), StateError> {
+        let mut restored: Gba = snapshot::read(&self.game_code(), data)?;
+        restored.bus.cart.take_rom_from(&mut self.bus.cart);
+        restored.bus.bios.take_image_from(&mut self.bus.bios);
+        *self = restored;
+        Ok(())
     }
 
     /// Sets the cartridge real-time clock from a Unix timestamp (seconds).

@@ -117,6 +117,18 @@ await send("Log.enable");
 await send("Page.navigate", { url });
 await sleep(1500);
 
+const dumpLogs = () => {
+  for (const l of logs) console.log(`  console ${l}`);
+};
+process.on("uncaughtException", async (error) => {
+  console.error(error.message);
+  dumpLogs();
+  try {
+    console.error("page html:", (await evaluate("document.body.innerHTML.slice(0, 600)")) ?? "");
+  } catch {}
+  process.exit(1);
+});
+
 // Add the ROM through the library's file input, exactly as a user would.
 const { root: doc } = await send("DOM.getDocument", { depth: 1 });
 const { nodeId } = await send("DOM.querySelector", { nodeId: doc.nodeId, selector: "input[type=file]" });
@@ -139,15 +151,35 @@ const litPixels = await evaluate(`(() => {
 })()`);
 console.log(`fps counter: "${fps}"; non-black pixels: ${litPixels}`);
 
+// Save states: Shift+F1 saves slot 1, F1 loads it; each shows a toast.
+const pressKey = async (code, key, keyCode, modifiers = 0) => {
+  await send("Input.dispatchKeyEvent", { type: "keyDown", code, key, windowsVirtualKeyCode: keyCode, modifiers });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", code, key, windowsVirtualKeyCode: keyCode, modifiers });
+};
+const lastToast = () => evaluate("Array.from(document.querySelectorAll('.toast')).at(-1)?.textContent ?? ''");
+await pressKey("F1", "F1", 112, 8);
+await sleep(800);
+const savedToast = await lastToast();
+await pressKey("F1", "F1", 112);
+await sleep(800);
+const loadedToast = await lastToast();
+console.log(`save state: "${savedToast}" / "${loadedToast}"`);
+
 const shot = await send("Page.captureScreenshot", { format: "png" });
 mkdirSync(dirname(screenshot), { recursive: true });
 writeFileSync(screenshot, Buffer.from(shot.data, "base64"));
 console.log(`screenshot: ${screenshot}`);
 
 const problems = logs.filter((l) => /^(error|exception)/.test(l));
-for (const l of logs) console.log(`  console ${l}`);
+dumpLogs();
 ws.close();
-if (problems.length || litPixels === 0 || !/\d+ fps/.test(fps)) {
+if (
+  problems.length ||
+  litPixels === 0 ||
+  !/\d+ fps/.test(fps) ||
+  savedToast !== "State 1 saved" ||
+  loadedToast !== "State 1 loaded"
+) {
   console.error("SMOKE TEST FAILED");
   process.exit(1);
 }

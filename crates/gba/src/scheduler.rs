@@ -4,8 +4,10 @@
 //! starts) registers an event at an absolute cycle time. After each instruction the
 //! CPU asks `is_due()` and, if so, the bus dispatches whatever has come due.
 
+use serde::{Deserialize, Serialize};
+
 /// Hardware events that can be scheduled.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Event {
     /// Visible part of a scanline finished; HBlank starts (cycle 960 of 1232).
     HBlankStart,
@@ -19,13 +21,14 @@ pub enum Event {
     AudioSample,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 struct Entry {
     at: u64,
     event: Event,
 }
 
 /// Sorted list of pending events. Small enough that a `Vec` beats a heap.
+#[derive(Serialize, Deserialize)]
 pub struct Scheduler {
     now: u64,
     queue: Vec<Entry>,

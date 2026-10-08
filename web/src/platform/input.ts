@@ -43,13 +43,20 @@ export class Input {
   private last = -1;
   private pollTimer: number | null = null;
   readonly fastForwardKey = "Space";
+  readonly rewindKey = "KeyR";
   onChange: (keys: number) => void = () => {};
   onFastForward: (held: boolean) => void = () => {};
+  onRewind: (held: boolean) => void = () => {};
 
   attach(target: Window) {
     target.addEventListener("keydown", (e) => {
       if (e.code === this.fastForwardKey) {
         this.onFastForward(true);
+        e.preventDefault();
+        return;
+      }
+      if (e.code === this.rewindKey) {
+        if (!e.repeat) this.onRewind(true);
         e.preventDefault();
         return;
       }
@@ -62,6 +69,10 @@ export class Input {
     target.addEventListener("keyup", (e) => {
       if (e.code === this.fastForwardKey) {
         this.onFastForward(false);
+        return;
+      }
+      if (e.code === this.rewindKey) {
+        this.onRewind(false);
         return;
       }
       const bit = KEYBOARD[e.code];

@@ -9,6 +9,7 @@ export class TouchControls {
   private dpadKeys = 0;
   private buttons = new Map<number, number>(); // pointerId → key bits
   onChange: (keys: number) => void = () => {};
+  onRewind: (held: boolean) => void = () => {};
 
   constructor() {
     this.element = document.createElement("div");
@@ -33,8 +34,27 @@ export class TouchControls {
       </div>
       <div class="touch-system">
         <button class="tbtn tbtn-pill" data-key="${Key.Select}">select</button>
+        <button class="tbtn tbtn-pill tbtn-rewind" data-hold="rewind" title="Hold to rewind">⟲</button>
         <button class="tbtn tbtn-pill" data-key="${Key.Start}">start</button>
       </div>`;
+
+    const rewind = this.element.querySelector<HTMLButtonElement>("[data-hold=rewind]")!;
+    const holdOn = (e: PointerEvent) => {
+      e.preventDefault();
+      rewind.setPointerCapture(e.pointerId);
+      rewind.classList.add("active");
+      this.onRewind(true);
+    };
+    const holdOff = () => {
+      if (!rewind.classList.contains("active")) return;
+      rewind.classList.remove("active");
+      this.onRewind(false);
+    };
+    rewind.addEventListener("pointerdown", holdOn);
+    rewind.addEventListener("pointerup", holdOff);
+    rewind.addEventListener("pointercancel", holdOff);
+    rewind.addEventListener("lostpointercapture", holdOff);
+    rewind.addEventListener("contextmenu", (e) => e.preventDefault());
 
     for (const button of this.element.querySelectorAll<HTMLButtonElement>("[data-key]")) {
       const bits = Number(button.dataset["key"]);

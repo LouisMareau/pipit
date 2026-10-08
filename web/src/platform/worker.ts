@@ -1,6 +1,7 @@
 // The emulator runs here, off the UI thread. It paces itself against wall-clock
-// time, posts every finished frame (pixels + audio) to the UI, and reports save
-// data whenever the game writes to its backup memory.
+// time, posts every finished frame (pixels + audio) to the UI, reports save data
+// whenever the game writes its backup memory, and keeps a ring of recent states
+// for rewinding.
 
 import init, { Emulator } from "@wasm/pipit_wasm.js";
 import type { FromWorker, ToWorker } from "../types";
@@ -8,11 +9,14 @@ import type { FromWorker, ToWorker } from "../types";
 const FRAME_MS = 1000 / (16_777_216 / 280_896); // 59.7275 Hz
 const MAX_CATCH_UP = 3;
 const SAVE_CHECK_FRAMES = 60;
+/** A rewind snapshot every N frames (15 per second). */
+const REWIND_INTERVAL = 4;
 
 let emulator: Emulator | null = null;
 let memory: WebAssembly.Memory | null = null;
 let running = false;
 let fastForward = false;
+let rewinding = false;
 let keys = 0;
 let nextFrameAt = 0;
 let frameCounter = 0;
@@ -22,11 +26,19 @@ let fps = 0;
 let timer: ReturnType<typeof setTimeout> | null = null;
 const spareBuffers: ArrayBuffer[] = [];
 
+let rewindCapacity = 60; // snapshots; the UI sets it through a `config` message
+const history: Uint8Array[] = [];
+let rewindPhase = 0;
+
 const post = (msg: FromWorker, transfer: Transferable[] = []) => self.postMessage(msg, transfer);
 
 self.onmessage = async (event: MessageEvent<ToWorker>) => {
   const msg = event.data;
   switch (msg.type) {
+    case "config":
+      rewindCapacity = Math.round((msg.rewindSeconds * 60) / REWIND_INTERVAL);
+      history.length = 0;
+      break;
     case "load":
       await load(msg.rom, msg.save, msg.bios, msg.unixSeconds);
       break;
@@ -49,8 +61,27 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     case "fastForward":
       fastForward = msg.enabled;
       break;
+    case "rewind":
+      rewinding = msg.enabled && history.length > 0;
+      rewindPhase = 0;
+      break;
     case "requestSave":
       sendSave();
+      break;
+    case "saveState": {
+      const data = emulator?.save_state();
+      if (data) post({ type: "state", slot: msg.slot, data: data.buffer as ArrayBuffer }, [data.buffer as ArrayBuffer]);
+      break;
+    }
+    case "loadState":
+      try {
+        emulator?.load_state(new Uint8Array(msg.data));
+        emulator?.refresh_frame();
+        history.length = 0;
+        postFrame();
+      } catch (error) {
+        post({ type: "error", message: String(error) });
+      }
       break;
     case "returnFrame":
       if (spareBuffers.length < 3) spareBuffers.push(msg.pixels);
@@ -70,6 +101,7 @@ async function load(rom: ArrayBuffer, save: ArrayBuffer | null, bios: ArrayBuffe
     emulator.set_time(unixSeconds);
     emulator.set_keys(keys);
     frameCounter = 0;
+    history.length = 0;
     post({ type: "loaded", title: emulator.title(), gameCode: emulator.game_code() });
   } catch (error) {
     post({ type: "error", message: `Could not start the game: ${String(error)}` });
@@ -83,6 +115,24 @@ function schedule(delay: number) {
 function tick() {
   if (!running || !emulator) return;
   const now = performance.now();
+  if (rewinding) {
+    // Play the history backwards at the speed it was recorded.
+    if (now >= nextFrameAt) {
+      if (rewindPhase++ % REWIND_INTERVAL === 0) {
+        const state = history.pop();
+        if (state) {
+          emulator.load_state(state);
+          emulator.refresh_frame();
+          postFrame();
+        } else {
+          rewinding = false;
+        }
+      }
+      nextFrameAt = Math.max(nextFrameAt + FRAME_MS, now - FRAME_MS);
+    }
+    schedule(Math.max(0, nextFrameAt - performance.now()));
+    return;
+  }
   if (fastForward) {
     // Run as many frames as fit in a few milliseconds, then yield.
     const deadline = now + 12;
@@ -107,7 +157,7 @@ function tick() {
 }
 
 function step() {
-  if (!emulator || !memory) return;
+  if (!emulator) return;
   emulator.run_frame();
   frameCounter++;
 
@@ -119,14 +169,23 @@ function step() {
     fpsWindowFrames = 0;
   }
 
+  postFrame();
+
+  if (rewindCapacity > 0 && !fastForward && frameCounter % REWIND_INTERVAL === 0) {
+    history.push(emulator.save_state());
+    if (history.length > rewindCapacity) history.shift();
+  }
+  if (frameCounter % SAVE_CHECK_FRAMES === 0 && emulator.take_save_dirty()) sendSave();
+}
+
+function postFrame() {
+  if (!emulator || !memory) return;
   const len = emulator.frame_len();
   const src = new Uint8Array(memory.buffer, emulator.frame_ptr(), len);
   const pixels = spareBuffers.pop() ?? new ArrayBuffer(len);
   new Uint8Array(pixels).set(src);
   const audio = emulator.drain_audio().buffer as ArrayBuffer;
   post({ type: "frame", pixels, audio, fps }, [pixels, audio]);
-
-  if (frameCounter % SAVE_CHECK_FRAMES === 0 && emulator.take_save_dirty()) sendSave();
 }
 
 function sendSave() {

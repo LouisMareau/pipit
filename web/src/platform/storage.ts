@@ -4,7 +4,7 @@ import type { RomEntry, Settings } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
 
 const DB_NAME = "pipit";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -14,10 +14,15 @@ function open(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
-      db.createObjectStore("roms", { keyPath: "id" });
-      db.createObjectStore("romData", { keyPath: "id" });
-      db.createObjectStore("saves", { keyPath: "id" });
-      db.createObjectStore("settings", { keyPath: "key" });
+      for (const [name, keyPath] of [
+        ["roms", "id"],
+        ["romData", "id"],
+        ["saves", "id"],
+        ["settings", "key"],
+        ["states", "key"],
+      ] as const) {
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath });
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -72,6 +77,7 @@ export async function deleteRom(id: string) {
   await tx("roms", "readwrite", (s) => s.delete(id));
   await tx("romData", "readwrite", (s) => s.delete(id));
   await tx("saves", "readwrite", (s) => s.delete(id));
+  await tx("states", "readwrite", (s) => s.delete(IDBKeyRange.bound(`${id}:`, `${id}:￿`)));
 }
 
 export async function getSave(id: string): Promise<ArrayBuffer | null> {
@@ -81,6 +87,24 @@ export async function getSave(id: string): Promise<ArrayBuffer | null> {
 
 export async function putSave(id: string, data: ArrayBuffer) {
   await tx("saves", "readwrite", (s) => s.put({ id, data, updatedAt: Date.now() }));
+}
+
+export interface StateEntry {
+  key: string;
+  romId: string;
+  slot: number;
+  data: ArrayBuffer;
+  savedAt: number;
+}
+
+export async function putState(romId: string, slot: number, data: ArrayBuffer) {
+  const entry: StateEntry = { key: `${romId}:${slot}`, romId, slot, data, savedAt: Date.now() };
+  await tx("states", "readwrite", (s) => s.put(entry));
+}
+
+export async function getState(romId: string, slot: number): Promise<StateEntry | null> {
+  const row = await tx<StateEntry | undefined>("states", "readonly", (s) => s.get(`${romId}:${slot}`));
+  return row ?? null;
 }
 
 export async function loadSettings(): Promise<Settings> {

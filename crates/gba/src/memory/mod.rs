@@ -17,6 +17,7 @@ use crate::keypad::Keypad;
 use crate::scheduler::{Event, Scheduler};
 use crate::timers::Timers;
 use crate::video::Video;
+use serde::{Deserialize, Serialize};
 
 pub const EWRAM_SIZE: usize = 0x40000;
 pub const IWRAM_SIZE: usize = 0x8000;
@@ -40,6 +41,7 @@ pub mod region {
     pub const SRAM_MIRROR: u32 = 0xF;
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Bus {
     pub scheduler: Scheduler,
     pub video: Video,
@@ -51,7 +53,9 @@ pub struct Bus {
     pub cart: Cartridge,
     pub bios: Bios,
 
+    #[serde(with = "crate::snapshot::bytes_box")]
     ewram: Box<[u8; EWRAM_SIZE]>,
+    #[serde(with = "crate::snapshot::bytes_box")]
     iwram: Box<[u8; IWRAM_SIZE]>,
 
     /// WAITCNT (0x4000204).
@@ -61,6 +65,7 @@ pub struct Bus {
     /// POSTFLG (0x4000300).
     postflg: u8,
     /// Serial I/O registers are stored but not emulated (no link cable yet).
+    #[serde(with = "crate::snapshot::array")]
     sio: [u16; 0x30],
 
     /// Cycles for a 16-bit access, indexed by `[region][sequential]`.

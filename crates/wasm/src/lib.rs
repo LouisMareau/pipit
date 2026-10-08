@@ -26,6 +26,11 @@ impl Emulator {
     /// Emulates until the next frame is complete and converts it to RGBA.
     pub fn run_frame(&mut self) {
         self.gba.run_frame();
+        self.refresh_frame();
+    }
+
+    /// Re-converts the current framebuffer to RGBA without running (after a state load).
+    pub fn refresh_frame(&mut self) {
         for (px, out) in self.gba.framebuffer().iter().zip(self.rgba.chunks_exact_mut(4)) {
             out[0] = (px >> 16) as u8;
             out[1] = (px >> 8) as u8;
@@ -63,6 +68,16 @@ impl Emulator {
 
     pub fn take_save_dirty(&mut self) -> bool {
         self.gba.take_save_dirty()
+    }
+
+    /// Serializes the whole machine state.
+    pub fn save_state(&self) -> Vec<u8> {
+        self.gba.save_state()
+    }
+
+    /// Restores a state from `save_state`; throws when it does not belong to this game.
+    pub fn load_state(&mut self, data: &[u8]) -> Result<(), JsError> {
+        self.gba.load_state(data).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sets the cartridge clock from a Unix timestamp in seconds.

@@ -7,6 +7,7 @@ import { EmulatorClient } from "../platform/emulator-client";
 import { Input } from "../platform/input";
 import * as storage from "../platform/storage";
 import type { RomEntry, Settings } from "../types";
+import { STATE_SLOTS } from "../types";
 import { Library } from "./library";
 import { Screen } from "./screen";
 import { TouchControls } from "./touch-controls";
@@ -17,7 +18,7 @@ export class App {
   private player: HTMLDivElement;
   private screen: Screen;
   private touch = new TouchControls();
-  private emulator = new EmulatorClient();
+  private emulator: EmulatorClient;
   private audio = new AudioOutput();
   private input = new Input();
   private settings: Settings;
@@ -29,8 +30,11 @@ export class App {
   constructor(root: HTMLElement, settings: Settings) {
     this.root = root;
     this.settings = settings;
+    this.emulator = new EmulatorClient(settings.rewindSeconds);
     this.player = document.createElement("div");
     this.player.className = "player hidden";
+    const slotButtons = (action: string) =>
+      Array.from({ length: STATE_SLOTS }, (_, i) => `<button class="btn" data-action="${action}" data-slot="${i + 1}">${i + 1}</button>`).join("");
     this.player.innerHTML = `
       <div class="toolbar">
         <button class="btn btn-icon" data-action="back" title="Library">‹</button>
@@ -44,9 +48,16 @@ export class App {
       </div>
       <div class="screen-box"></div>
       <div class="menu hidden">
+        <h4>Save states</h4>
+        <div class="slots"><span class="small">Save</span>${slotButtons("save-state")}</div>
+        <div class="slots"><span class="small">Load</span>${slotButtons("load-state")}</div>
+        <p class="muted small">Shift+F1–F3 saves, F1–F3 loads. Hold R to rewind.</p>
+        <h4>Battery save</h4>
         <button class="btn" data-action="export">Export save (.sav)</button>
         <button class="btn" data-action="import">Import save (.sav)</button>
+        <h4>Settings</h4>
         <label class="row"><span>Volume</span><input type="range" min="0" max="1" step="0.05" data-setting="volume" /></label>
+        <label class="row"><span>Rewind</span><input type="range" min="0" max="10" step="1" data-setting="rewindSeconds" /><span class="small rewind-label"></span></label>
         <label class="row"><input type="checkbox" data-setting="integerScale" /><span>Integer pixel scaling</span></label>
         <label class="row"><input type="checkbox" data-setting="alwaysShowTouch" /><span>Always show touch controls</span></label>
         <button class="btn" data-action="fullscreen">Fullscreen</button>
@@ -64,7 +75,9 @@ export class App {
     this.input.attach(window);
     this.input.onChange = (keys) => this.emulator.setKeys(keys);
     this.input.onFastForward = (held) => this.setFastForward(held);
+    this.input.onRewind = (held) => this.emulator.setRewind(held);
     this.touch.onChange = (keys) => this.input.setTouch(keys);
+    this.touch.onRewind = (held) => this.emulator.setRewind(held);
 
     // Audio can only start from a user gesture.
     const unlock = () => this.audio.resume();
@@ -120,13 +133,38 @@ export class App {
       if (this.saveTimer !== null) clearTimeout(this.saveTimer);
       this.saveTimer = window.setTimeout(() => this.flushSave(), 500);
     });
-    this.emulator.on("error", (message) => alert(message));
+    this.emulator.on("state", async (slot, data) => {
+      if (!this.current) return;
+      await storage.putState(this.current.id, slot, data);
+      this.toast(`State ${slot} saved`);
+    });
+    this.emulator.on("error", (message) => this.toast(message));
   }
 
   private flushSave() {
     if (this.saveTimer !== null) clearTimeout(this.saveTimer);
     this.saveTimer = null;
     if (this.current && this.latestSave) void storage.putSave(this.current.id, this.latestSave);
+  }
+
+  private async loadState(slot: number) {
+    if (!this.current) return;
+    const entry = await storage.getState(this.current.id, slot);
+    if (!entry) {
+      this.toast(`State ${slot} is empty`);
+      return;
+    }
+    // The buffer is transferred to the worker, so hand over a copy.
+    this.emulator.loadState(entry.data.slice(0));
+    this.toast(`State ${slot} loaded`);
+  }
+
+  private toast(message: string) {
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.textContent = message;
+    document.body.append(el);
+    el.addEventListener("animationend", () => el.remove());
   }
 
   private setFastForward(on: boolean) {
@@ -146,6 +184,7 @@ export class App {
     this.player.addEventListener("click", async (e) => {
       const button = (e.target as HTMLElement).closest<HTMLElement>("[data-action]");
       if (!button) return;
+      const slot = Number(button.dataset["slot"] ?? 0);
       switch (button.dataset["action"]) {
         case "back":
           this.backToLibrary();
@@ -161,6 +200,12 @@ export class App {
           break;
         case "menu":
           menu.classList.toggle("hidden");
+          break;
+        case "save-state":
+          this.emulator.saveState(slot);
+          break;
+        case "load-state":
+          await this.loadState(slot);
           break;
         case "export":
           this.emulator.requestSave();
@@ -183,7 +228,17 @@ export class App {
       }
     });
     window.addEventListener("keydown", (e) => {
-      if (e.code === "KeyP" && this.current) this.togglePause();
+      if (!this.current) return;
+      if (e.code === "KeyP") this.togglePause();
+      const fkey = /^F([1-9])$/.exec(e.code);
+      if (fkey) {
+        const slot = Number(fkey[1]);
+        if (slot <= STATE_SLOTS) {
+          e.preventDefault();
+          if (e.shiftKey) this.emulator.saveState(slot);
+          else void this.loadState(slot);
+        }
+      }
     });
   }
 
@@ -206,6 +261,9 @@ export class App {
       if (el.type === "checkbox") el.checked = Boolean(value);
       else el.value = String(value);
     }
+    this.player.querySelector(".rewind-label")!.textContent =
+      this.settings.rewindSeconds === 0 ? "off" : `${this.settings.rewindSeconds} s`;
+    this.emulator.setRewindSeconds(this.settings.rewindSeconds);
     this.audio.setVolume(this.settings.volume);
     this.screen.setIntegerScale(this.settings.integerScale);
     this.player.classList.toggle("force-touch", this.settings.alwaysShowTouch);

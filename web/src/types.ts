@@ -20,18 +20,23 @@ export const SCREEN_WIDTH = 240;
 export const SCREEN_HEIGHT = 160;
 
 export type ToWorker =
+  | { type: "config"; rewindSeconds: number }
   | { type: "load"; rom: ArrayBuffer; save: ArrayBuffer | null; bios: ArrayBuffer | null; unixSeconds: number }
   | { type: "run" }
   | { type: "pause" }
   | { type: "keys"; keys: number }
   | { type: "fastForward"; enabled: boolean }
+  | { type: "rewind"; enabled: boolean }
   | { type: "requestSave" }
+  | { type: "saveState"; slot: number }
+  | { type: "loadState"; data: ArrayBuffer }
   | { type: "returnFrame"; pixels: ArrayBuffer };
 
 export type FromWorker =
   | { type: "loaded"; title: string; gameCode: string }
   | { type: "frame"; pixels: ArrayBuffer; audio: ArrayBuffer; fps: number }
   | { type: "save"; data: ArrayBuffer }
+  | { type: "state"; slot: number; data: ArrayBuffer }
   | { type: "error"; message: string };
 
 export interface RomEntry {
@@ -50,10 +55,16 @@ export interface Settings {
   integerScale: boolean;
   /** Show touch controls on devices with a mouse as well. */
   alwaysShowTouch: boolean;
+  /** Seconds of gameplay kept for rewinding (0 disables it). */
+  rewindSeconds: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   volume: 0.8,
   integerScale: false,
   alwaysShowTouch: false,
+  rewindSeconds: 4,
 };
+
+/** Number of save-state slots offered in the UI. */
+export const STATE_SLOTS = 3;

@@ -12,7 +12,7 @@ export class AudioOutput {
     if (this.ready) return this.ready;
     this.ready = (async () => {
       const context = new AudioContext({ sampleRate: 32768, latencyHint: "interactive" });
-      await context.audioWorklet.addModule("/audio-worklet.js");
+      await context.audioWorklet.addModule(`${import.meta.env.BASE_URL}audio-worklet.js`);
       const node = new AudioWorkletNode(context, "pipit-audio", { outputChannelCount: [2] });
       node.connect(context.destination);
       this.context = context;

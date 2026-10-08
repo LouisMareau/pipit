@@ -8,9 +8,14 @@
 
 pub mod swi;
 
+use serde::{Deserialize, Serialize};
+
 pub const BIOS_SIZE: usize = 0x4000;
 
+#[derive(Serialize, Deserialize)]
 pub struct Bios {
+    /// Not part of save states: a restored state keeps whatever BIOS is loaded.
+    #[serde(skip, default = "build_stub")]
     image: Box<[u8; BIOS_SIZE]>,
     /// True when SWI calls are handled in Rust instead of executed from `image`.
     pub hle: bool,
@@ -26,6 +31,11 @@ impl Bios {
             }
             _ => Self { image: build_stub(), hle: true },
         }
+    }
+
+    /// Moves the BIOS image out of `other` (restoring a save state keeps it).
+    pub(crate) fn take_image_from(&mut self, other: &mut Bios) {
+        std::mem::swap(&mut self.image, &mut other.image);
     }
 
     #[inline]

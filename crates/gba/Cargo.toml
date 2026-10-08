@@ -9,5 +9,6 @@ authors.workspace = true
 
 [dependencies]
 serde = { workspace = true }
+bincode = { workspace = true }
 
 [dev-dependencies]

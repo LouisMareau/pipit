@@ -14,8 +14,8 @@ Checked items are done and covered by tests.
 - [x] Saves: SRAM, Flash 64K/128K, EEPROM 4K/64K (`gba-tests/save`)
 - [x] RTC
 - [x] Open-bus behaviour (`gba-tests/unsafe`)
+- [x] Save states (exact: restored runs continue bit-identically)
 - [ ] ROM prefetch buffer timing
-- [ ] Save states
 - [ ] Cheat codes (GameShark / CodeBreaker)
 
 ## Web app
@@ -27,8 +27,8 @@ Checked items are done and covered by tests.
 - [x] Save data persistence (IndexedDB), .sav export/import
 - [x] Fast-forward, screenshots
 - [x] Installable PWA, offline
-- [ ] Save state slots (needs core save states)
-- [ ] Rewind
+- [x] Save state slots (3 slots, Shift+F1–F3 / F1–F3)
+- [x] Rewind (hold R or the ⟲ touch button; length configurable)
 - [ ] Remappable controls
 - [ ] Colour correction / LCD look
 - [ ] Deployed online
