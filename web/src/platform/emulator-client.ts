@@ -14,10 +14,9 @@ export class EmulatorClient {
   private worker: Worker;
   private handlers: Partial<Handlers> = {};
 
-  constructor(rewindSeconds: number) {
+  constructor() {
     // Vite only bundles workers it can see statically, so this exact form matters.
     this.worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-    this.send({ type: "config", rewindSeconds });
     this.worker.onmessage = (event: MessageEvent<FromWorker>) => {
       const msg = event.data;
       switch (msg.type) {
@@ -70,12 +69,9 @@ export class EmulatorClient {
     this.send({ type: "fastForward", enabled });
   }
 
-  setRewind(enabled: boolean) {
-    this.send({ type: "rewind", enabled });
-  }
-
-  setRewindSeconds(seconds: number) {
-    this.send({ type: "config", rewindSeconds: seconds });
+  /** 0 = raw colours, 1 = GBA LCD look. */
+  setColorCorrection(mode: number) {
+    this.send({ type: "colors", mode });
   }
 
   requestSave() {

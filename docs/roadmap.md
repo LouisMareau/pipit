@@ -31,9 +31,8 @@ Checked items are done and covered by tests.
 - [x] Fast-forward, screenshots
 - [x] Installable PWA, offline
 - [x] Save state slots (3 slots, Shift+F1–F3 / F1–F3)
-- [x] Rewind (hold R or the ⟲ touch button; length configurable)
 - [x] Remappable keyboard controls (⋯ menu → Change key bindings; includes fast-forward, rewind, pause)
-- [ ] Colour correction / LCD look
+- [x] Colour correction: GBA LCD look (gba-color transform, precomputed 15-bit table)
 - [x] Deployed online (GitHub Pages, on every push to `main`)
 
 ## Desktop

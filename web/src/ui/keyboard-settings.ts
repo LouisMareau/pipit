@@ -1,6 +1,6 @@
 // Keyboard settings: a modal for rebinding keys, opened from the player menu.
 //
-// Lists the GBA keys and the emulator actions (fast-forward, rewind, pause);
+// Lists the GBA keys and the emulator actions (fast-forward, pause);
 // "Change" waits for the next key press. A key can drive only one action.
 
 import type { Capture } from "../platform/input";
@@ -21,7 +21,6 @@ const LABELS: Record<KeyboardAction, string> = {
   Left: "D-pad left",
   Right: "D-pad right",
   FastForward: "Fast-forward (hold)",
-  Rewind: "Rewind (hold)",
   Pause: "Pause",
 };
 

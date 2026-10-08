@@ -697,11 +697,6 @@ select {
   text-transform: uppercase;
 }
 
-.tbtn-rewind {
-  width: 44px;
-  font-size: 18px;
-}
-
 .dpad {
   position: relative;
   width: calc(var(--touch-size) * 2.3);

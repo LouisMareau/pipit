@@ -165,6 +165,17 @@ for (let i = 0; i < 8; i++) {
 }
 console.log(`worst frame gap per second (ms): ${gaps.join(" ")}`);
 const fps = await evaluate("document.querySelector('.toolbar-fps').textContent");
+
+// Colour correction: the test ROM's white background reads 248 with the LCD look
+// (default) and 255 with raw colours.
+const samplePixel = () => evaluate("document.querySelector('canvas').getContext('2d').getImageData(4, 4, 1, 1).data[0]");
+const lcdWhite = await samplePixel();
+await evaluate(`(() => { const s = document.querySelector('[data-setting=colorCorrection]'); s.value = 'off'; s.dispatchEvent(new Event('change')); })()`);
+await sleep(300);
+const rawWhite = await samplePixel();
+await evaluate(`(() => { const s = document.querySelector('[data-setting=colorCorrection]'); s.value = 'gba'; s.dispatchEvent(new Event('change')); })()`);
+await sleep(300);
+console.log(`colour correction: white = ${lcdWhite} (LCD) / ${rawWhite} (raw)`);
 // Usually no controller is plugged in: the toggle renders gray but clickable.
 // With one connected it must be green instead, and the picker must list it.
 const pads = await evaluate("Array.from(navigator.getGamepads()).filter(Boolean).map((p) => p.id)");
@@ -243,7 +254,11 @@ const fastActive = await evaluate("document.querySelector('[data-action=fast]').
 await send("Input.dispatchKeyEvent", { type: "keyUp", code: "KeyF", key: "f", windowsVirtualKeyCode: 70 });
 await sleep(100);
 const fastReleased = await evaluate("!document.querySelector('[data-action=fast]').classList.contains('active')");
-console.log(`keyboard remap: rows=${keyboardRows}, fast-forward now "${fastForwardLabel}", works=${fastActive && fastReleased}`);
+const keyboardModalClosed = await evaluate("Array.from(document.querySelectorAll('.modal-backdrop')).every((m) => m.classList.contains('hidden'))");
+console.log(
+  `keyboard remap: rows=${keyboardRows}, fast-forward now "${fastForwardLabel}", ` +
+    `dialog closed=${keyboardModalClosed}, F engages=${fastActive}, release clears=${fastReleased}`,
+);
 const litPixels = await evaluate(`(() => {
   const c = document.querySelector('canvas');
   const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
@@ -320,15 +335,17 @@ if (
   !/\d+ fps/.test(fps) ||
   savedToast !== "State 1 saved" ||
   loadedToast !== "State 1 loaded" ||
+  lcdWhite !== 248 ||
+  rawWhite !== 255 ||
   !controller.present ||
   controller.active !== pads.length > 0 ||
   controller.disabled ||
   !picker.open ||
   (pads.length === 0 ? picker.options[0] !== "No controller detected" : picker.options.length !== pads.length) ||
   !modal.open ||
-  modal.rows !== 13 ||
+  modal.rows !== 12 ||
   !modalClosed ||
-  keyboardRows !== 13 ||
+  keyboardRows !== 12 ||
   fastForwardLabel !== "F" ||
   !fastActive ||
   !fastReleased ||

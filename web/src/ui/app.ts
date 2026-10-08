@@ -38,7 +38,7 @@ export class App {
     this.root = root;
     // Older saved settings may predate some actions: fill the gaps with defaults.
     this.settings = { ...settings, keyboardMapping: { ...DEFAULT_KEYBOARD, ...settings.keyboardMapping } };
-    this.emulator = new EmulatorClient(settings.rewindSeconds);
+    this.emulator = new EmulatorClient();
     this.player = document.createElement("div");
     this.player.className = "player hidden";
     const slotButtons = (action: string) =>
@@ -60,7 +60,7 @@ export class App {
         <h4>Save states</h4>
         <div class="slots"><span class="small">Save</span>${slotButtons("save-state")}</div>
         <div class="slots"><span class="small">Load</span>${slotButtons("load-state")}</div>
-        <p class="muted small">Shift+F1–F3 saves, F1–F3 loads. <span class="rewind-hint"></span></p>
+        <p class="muted small">Shift+F1–F3 saves, F1–F3 loads.</p>
         <h4>Keyboard</h4>
         <button class="btn" data-action="keyboard">Change key bindings…</button>
         <h4>Battery save</h4>
@@ -68,7 +68,12 @@ export class App {
         <button class="btn" data-action="import">Import save (.sav)</button>
         <h4>Settings</h4>
         <label class="row"><span>Volume</span><input type="range" min="0" max="1" step="0.05" data-setting="volume" /></label>
-        <label class="row"><span>Rewind</span><input type="range" min="0" max="10" step="1" data-setting="rewindSeconds" /><span class="small rewind-label"></span></label>
+        <label class="row"><span>Colours</span>
+          <select data-setting="colorCorrection">
+            <option value="gba">GBA LCD — muted, as on the original screen</option>
+            <option value="off">Raw — the palette as stored in the game</option>
+          </select>
+        </label>
         <label class="row"><span>Touch layout</span>
           <select data-setting="touchLayout">
             <option value="auto">Auto (GBA in landscape, GBA SP in portrait)</option>
@@ -96,12 +101,10 @@ export class App {
     this.input.attach(window);
     this.input.onChange = (keys) => this.emulator.setKeys(keys);
     this.input.onFastForward = (held) => this.setFastForward(held);
-    this.input.onRewind = (held) => this.emulator.setRewind(held);
     this.input.onPause = () => {
       if (this.current) this.togglePause();
     };
     this.touch.onChange = (keys) => this.input.setTouch(keys);
-    this.touch.onRewind = (held) => this.emulator.setRewind(held);
 
     // Audio can only start from a user gesture.
     const unlock = () => this.audio.resume();
@@ -227,7 +230,6 @@ export class App {
   private applyKeyboard() {
     const m = this.settings.keyboardMapping;
     this.input.setKeyboardMapping(m);
-    this.player.querySelector(".rewind-hint")!.textContent = m.Rewind ? `Hold ${keyLabel(m.Rewind)} to rewind.` : "";
     const k = (code: string) => keyLabel(code);
     this.library.setHelp(
       `Keyboard: ${k(m.Up)}${k(m.Down)}${k(m.Left)}${k(m.Right)} = D-pad · ${k(m.A)} = A · ${k(m.B)} = B · ` +
@@ -379,9 +381,7 @@ export class App {
       else if (el.type === "checkbox") el.checked = Boolean(value);
       else el.value = String(value);
     }
-    this.player.querySelector(".rewind-label")!.textContent =
-      this.settings.rewindSeconds === 0 ? "off" : `${this.settings.rewindSeconds} s`;
-    this.emulator.setRewindSeconds(this.settings.rewindSeconds);
+    this.emulator.setColorCorrection(this.settings.colorCorrection === "gba" ? 1 : 0);
     this.audio.setVolume(this.settings.volume);
     this.screen.setIntegerScale(this.settings.integerScale);
     this.applyKeyboard();

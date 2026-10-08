@@ -1,6 +1,6 @@
 // Controller settings: a modal over the game for remapping buttons.
 //
-// Each GBA key and emulator action (fast-forward, rewind, pause) shows the
+// Each GBA key and emulator action (fast-forward, pause) shows the
 // controller button driving it; "Change" waits for the next press on the
 // controller. Changes apply immediately and are saved per controller model.
 
@@ -21,7 +21,6 @@ const LABELS: Record<ControllerAction, string> = {
   Left: "D-pad left",
   Right: "D-pad right",
   FastForward: "Fast-forward (hold)",
-  Rewind: "Rewind (hold)",
   Pause: "Pause",
 };
 

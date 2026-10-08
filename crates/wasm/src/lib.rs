@@ -3,6 +3,7 @@
 //! Frames are exposed as a pointer into WASM memory (RGBA bytes, ready for an
 //! `ImageData`) so the worker can copy them out without an intermediate `Vec`.
 
+use pipit_gba::video::color;
 use pipit_gba::{Gba, Keys, SCREEN_HEIGHT, SCREEN_WIDTH};
 use wasm_bindgen::prelude::*;
 
@@ -10,8 +11,8 @@ use wasm_bindgen::prelude::*;
 pub struct Emulator {
     gba: Gba,
     rgba: Vec<u8>,
-    /// Reused for `snapshot`, so rewind captures allocate nothing.
-    state: Vec<u8>,
+    /// Colour correction table, when the LCD look is on.
+    color_lut: Option<Vec<[u8; 4]>>,
 }
 
 #[wasm_bindgen]
@@ -22,7 +23,7 @@ impl Emulator {
         Emulator {
             gba: Gba::new(rom.to_vec(), bios),
             rgba: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
-            state: Vec::new(),
+            color_lut: None,
         }
     }
 
@@ -32,15 +33,25 @@ impl Emulator {
         self.refresh_frame();
     }
 
-    /// Re-converts the current framebuffer to RGBA without running (after a state load).
+    /// Re-converts the current framebuffer to RGBA without running (after a state
+    /// load or a colour-mode change).
     pub fn refresh_frame(&mut self) {
         let (pixels, _) = self.rgba.as_chunks_mut::<4>();
-        for (px, out) in self.gba.framebuffer().iter().zip(pixels) {
-            out[0] = (px >> 16) as u8;
-            out[1] = (px >> 8) as u8;
-            out[2] = *px as u8;
-            out[3] = 0xFF;
+        if let Some(lut) = &self.color_lut {
+            for (px, out) in self.gba.framebuffer().iter().zip(pixels) {
+                *out = lut[color::lut_index(*px)];
+            }
+        } else {
+            for (px, out) in self.gba.framebuffer().iter().zip(pixels) {
+                *out = [(px >> 16) as u8, (px >> 8) as u8, *px as u8, 0xFF];
+            }
         }
+    }
+
+    /// 0 = raw colours, 1 = the GBA LCD look.
+    pub fn set_color_correction(&mut self, mode: u8) {
+        self.color_lut = if mode == 1 { Some(color::lcd_lut()) } else { None };
+        self.refresh_frame();
     }
 
     /// Pointer to the 240×160×4 RGBA frame inside WASM memory.
@@ -77,17 +88,6 @@ impl Emulator {
     /// Serializes the whole machine state.
     pub fn save_state(&self) -> Vec<u8> {
         self.gba.save_state()
-    }
-
-    /// Serializes the state into an internal buffer and returns its length; read
-    /// it through `state_ptr` before the next call. No allocation after the first.
-    pub fn snapshot(&mut self) -> usize {
-        self.gba.save_state_into(&mut self.state);
-        self.state.len()
-    }
-
-    pub fn state_ptr(&self) -> *const u8 {
-        self.state.as_ptr()
     }
 
     /// Restores a state from `save_state`; throws when it does not belong to this game.

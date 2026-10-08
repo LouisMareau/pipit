@@ -1,6 +1,6 @@
 // Keyboard, controller and touch input, merged into one GBA key bit set.
 //
-// Keyboard: every action (GBA key, fast-forward, rewind, pause) is bound to one
+// Keyboard: every action (GBA key, fast-forward, pause) is bound to one
 // `KeyboardEvent.code`; the user can rebind them in the settings.
 //
 // Controllers: the browser reports them through the Gamepad API (Chrome only
@@ -8,8 +8,7 @@
 // and contributes only while controller input is enabled; the keyboard always
 // works. The first pad detected switches controller input on automatically.
 // Each pad reads through a mapping (action → button index) that the user can
-// change in the controller settings; emulator actions (fast-forward, rewind,
-// pause) are bindable there too.
+// change in the controller settings; emulator actions are bindable there too.
 
 import type { ControllerAction, ControllerMapping, KeyboardAction, KeyboardMapping, KeyName } from "../types";
 import { DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key } from "../types";
@@ -88,11 +87,9 @@ export class Input {
   private keyCapture: ((code: string | null) => void) | null = null;
   // Held state of the controller-driven emulator actions, for edge detection.
   private padFastForward = false;
-  private padRewind = false;
   private padPause = false;
   onChange: (keys: number) => void = () => {};
   onFastForward: (held: boolean) => void = () => {};
-  onRewind: (held: boolean) => void = () => {};
   onPause: () => void = () => {};
   onGamepads: (state: GamepadState) => void = () => {};
 
@@ -116,9 +113,6 @@ export class Input {
         case "FastForward":
           if (!e.repeat) this.onFastForward(true);
           break;
-        case "Rewind":
-          if (!e.repeat) this.onRewind(true);
-          break;
         case "Pause":
           if (!e.repeat) this.onPause();
           break;
@@ -134,9 +128,6 @@ export class Input {
         case "FastForward":
           this.onFastForward(false);
           break;
-        case "Rewind":
-          this.onRewind(false);
-          break;
         case "Pause":
           break;
         default:
@@ -148,7 +139,6 @@ export class Input {
       this.keyboard = 0;
       this.emit();
       this.onFastForward(false);
-      this.onRewind(false);
     });
     target.addEventListener("gamepadconnected", () => this.refreshGamepads());
     target.addEventListener("gamepaddisconnected", () => this.refreshGamepads());
@@ -245,18 +235,14 @@ export class Input {
   private resetGamepadState() {
     this.gamepad = 0;
     this.emit();
-    this.setPadAction("FastForward", false);
-    this.setPadAction("Rewind", false);
+    this.setPadFastForward(false);
     this.padPause = false;
   }
 
-  private setPadAction(action: "FastForward" | "Rewind", held: boolean) {
-    if (action === "FastForward" && this.padFastForward !== held) {
+  private setPadFastForward(held: boolean) {
+    if (this.padFastForward !== held) {
       this.padFastForward = held;
       this.onFastForward(held);
-    } else if (action === "Rewind" && this.padRewind !== held) {
-      this.padRewind = held;
-      this.onRewind(held);
     }
   }
 
@@ -312,7 +298,6 @@ export class Input {
 
       let keys = 0;
       let fastForward = false;
-      let rewind = false;
       let pause = false;
       if (this.enabled) {
         for (const [action, index] of Object.entries(this.mapping.buttons) as [ControllerAction, number][]) {
@@ -320,9 +305,6 @@ export class Input {
           switch (action) {
             case "FastForward":
               fastForward = true;
-              break;
-            case "Rewind":
-              rewind = true;
               break;
             case "Pause":
               pause = true;
@@ -343,8 +325,7 @@ export class Input {
         this.gamepad = keys;
         this.emit();
       }
-      this.setPadAction("FastForward", fastForward);
-      this.setPadAction("Rewind", rewind);
+      this.setPadFastForward(fastForward);
       if (pause && !this.padPause) this.onPause();
       this.padPause = pause;
     };

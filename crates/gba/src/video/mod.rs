@@ -3,7 +3,8 @@
 //! This module owns the video registers, VRAM/palette/OAM and the scanline timing.
 //! Pixels are produced by `render.rs`, one scanline at a time, when HBlank starts.
 
-mod render;
+pub mod color;
+pub(crate) mod render;
 
 use crate::dma::{Dma, Timing};
 use crate::irq::{Interrupt, Irq};
