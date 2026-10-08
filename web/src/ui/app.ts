@@ -4,12 +4,13 @@ import { exportSave, pickSaveFile } from "../features/saves";
 import { takeScreenshot } from "../features/screenshots";
 import { AudioOutput } from "../platform/audio";
 import { EmulatorClient } from "../platform/emulator-client";
-import { Input } from "../platform/input";
+import { Input, keyLabel } from "../platform/input";
 import * as storage from "../platform/storage";
 import type { ControllerMapping, RomEntry, Settings, TouchLayout } from "../types";
-import { DEFAULT_MAPPING, STATE_SLOTS } from "../types";
+import { DEFAULT_KEYBOARD, DEFAULT_MAPPING, STATE_SLOTS } from "../types";
 import { ControllerSettings } from "./controller-settings";
 import { ControllerToggle } from "./controller-toggle";
+import { KeyboardSettings } from "./keyboard-settings";
 import { Library } from "./library";
 import { Screen } from "./screen";
 import { TouchControls } from "./touch-controls";
@@ -22,6 +23,7 @@ export class App {
   private touch = new TouchControls();
   private controller = new ControllerToggle();
   private controllerSettings = new ControllerSettings();
+  private keyboardSettings = new KeyboardSettings();
   private emulator: EmulatorClient;
   private audio = new AudioOutput();
   private input = new Input();
@@ -33,7 +35,8 @@ export class App {
 
   constructor(root: HTMLElement, settings: Settings) {
     this.root = root;
-    this.settings = settings;
+    // Older saved settings may predate some actions: fill the gaps with defaults.
+    this.settings = { ...settings, keyboardMapping: { ...DEFAULT_KEYBOARD, ...settings.keyboardMapping } };
     this.emulator = new EmulatorClient(settings.rewindSeconds);
     this.player = document.createElement("div");
     this.player.className = "player hidden";
@@ -56,7 +59,9 @@ export class App {
         <h4>Save states</h4>
         <div class="slots"><span class="small">Save</span>${slotButtons("save-state")}</div>
         <div class="slots"><span class="small">Load</span>${slotButtons("load-state")}</div>
-        <p class="muted small">Shift+F1–F3 saves, F1–F3 loads. Hold R to rewind.</p>
+        <p class="muted small">Shift+F1–F3 saves, F1–F3 loads. <span class="rewind-hint"></span></p>
+        <h4>Keyboard</h4>
+        <button class="btn" data-action="keyboard">Change key bindings…</button>
         <h4>Battery save</h4>
         <button class="btn" data-action="export">Export save (.sav)</button>
         <button class="btn" data-action="import">Import save (.sav)</button>
@@ -77,7 +82,7 @@ export class App {
     this.screen = new Screen();
     this.player.querySelector(".screen-box")!.append(this.screen.element);
     this.player.querySelector(".toolbar-controller")!.append(this.controller.element);
-    this.player.append(this.touch.element, this.controllerSettings.element);
+    this.player.append(this.touch.element, this.controllerSettings.element, this.keyboardSettings.element);
     this.root.append(this.library.element, this.player);
 
     this.library.onPlay = (entry) => this.play(entry);
@@ -85,11 +90,15 @@ export class App {
     this.wireSettings();
     this.wireEmulator();
     this.wireController();
+    this.wireKeyboard();
 
     this.input.attach(window);
     this.input.onChange = (keys) => this.emulator.setKeys(keys);
     this.input.onFastForward = (held) => this.setFastForward(held);
     this.input.onRewind = (held) => this.emulator.setRewind(held);
+    this.input.onPause = () => {
+      if (this.current) this.togglePause();
+    };
     this.touch.onChange = (keys) => this.input.setTouch(keys);
     this.touch.onRewind = (held) => this.emulator.setRewind(held);
 
@@ -194,6 +203,30 @@ export class App {
     return (id && this.settings.controllerMappings[id]) || DEFAULT_MAPPING;
   }
 
+  private wireKeyboard() {
+    this.keyboardSettings.captureKey = () => this.input.captureKey();
+    this.keyboardSettings.onChange = (mapping) => {
+      this.settings = { ...this.settings, keyboardMapping: mapping };
+      void storage.saveSettings(this.settings);
+      this.applyKeyboard();
+    };
+    this.keyboardSettings.onClose = () => this.pauseForDialog(false);
+  }
+
+  /** Pushes the key bindings to the input layer and refreshes the texts that cite them. */
+  private applyKeyboard() {
+    const m = this.settings.keyboardMapping;
+    this.input.setKeyboardMapping(m);
+    this.player.querySelector(".rewind-hint")!.textContent = m.Rewind ? `Hold ${keyLabel(m.Rewind)} to rewind.` : "";
+    const k = (code: string) => keyLabel(code);
+    this.library.setHelp(
+      `Keyboard: ${k(m.Up)}${k(m.Down)}${k(m.Left)}${k(m.Right)} = D-pad · ${k(m.A)} = A · ${k(m.B)} = B · ` +
+        `${k(m.Start)} = Start · ${k(m.Select)} = Select · ${k(m.L)}/${k(m.R)} = L/R · ` +
+        `hold ${k(m.FastForward)} to fast-forward · ${k(m.Pause)} pauses. ` +
+        `Change them in the player's ⋯ menu. Controllers work too: press a button on one.`,
+    );
+  }
+
   /** Dialogs pause the game, unless the player had paused it already. */
   private dialogPaused = false;
   private pauseForDialog(open: boolean) {
@@ -267,6 +300,11 @@ export class App {
         case "menu":
           menu.classList.toggle("hidden");
           break;
+        case "keyboard":
+          menu.classList.add("hidden");
+          this.pauseForDialog(true);
+          this.keyboardSettings.open(this.settings.keyboardMapping);
+          break;
         case "save-state":
           this.emulator.saveState(slot);
           break;
@@ -295,7 +333,6 @@ export class App {
     });
     window.addEventListener("keydown", (e) => {
       if (!this.current) return;
-      if (e.code === "KeyP") this.togglePause();
       const fkey = /^F([1-9])$/.exec(e.code);
       if (fkey) {
         const slot = Number(fkey[1]);
@@ -337,6 +374,7 @@ export class App {
     this.emulator.setRewindSeconds(this.settings.rewindSeconds);
     this.audio.setVolume(this.settings.volume);
     this.screen.setIntegerScale(this.settings.integerScale);
+    this.applyKeyboard();
     this.applyLayout();
   }
 

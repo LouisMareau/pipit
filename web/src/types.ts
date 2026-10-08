@@ -86,6 +86,30 @@ export const GAMEPAD_BUTTON_NAMES: Record<number, string> = {
   16: "Home",
 };
 
+/** Everything a keyboard key can be bound to: GBA keys plus emulator actions. */
+export type KeyboardAction = KeyName | "FastForward" | "Rewind" | "Pause";
+
+/** Keyboard binding per action, as `KeyboardEvent.code` values ("" = unbound). */
+export type KeyboardMapping = Record<KeyboardAction, string>;
+
+export const KEYBOARD_ACTIONS: KeyboardAction[] = [...KEY_NAMES, "FastForward", "Rewind", "Pause"];
+
+export const DEFAULT_KEYBOARD: KeyboardMapping = {
+  A: "KeyZ",
+  B: "KeyX",
+  L: "KeyA",
+  R: "KeyS",
+  Start: "Enter",
+  Select: "Backspace",
+  Up: "ArrowUp",
+  Down: "ArrowDown",
+  Left: "ArrowLeft",
+  Right: "ArrowRight",
+  FastForward: "Space",
+  Rewind: "KeyR",
+  Pause: "KeyP",
+};
+
 export type TouchLayout = "auto" | "gba" | "gbasp";
 
 export interface Settings {
@@ -100,6 +124,7 @@ export interface Settings {
   touchLayout: TouchLayout;
   /** Button mappings, keyed by controller id. */
   controllerMappings: Record<string, ControllerMapping>;
+  keyboardMapping: KeyboardMapping;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -109,6 +134,7 @@ export const DEFAULT_SETTINGS: Settings = {
   rewindSeconds: 4,
   touchLayout: "auto",
   controllerMappings: {},
+  keyboardMapping: DEFAULT_KEYBOARD,
 };
 
 /** Number of save-state slots offered in the UI. */

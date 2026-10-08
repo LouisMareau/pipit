@@ -21,16 +21,18 @@ export class Library {
         <span class="muted small">.gba files you own, including your own builds and hacks</span>
       </label>
       <ul class="rom-list"></ul>
-      <p class="muted small keys-help">
-        Keyboard: arrows · Z = A · X = B · Enter = Start · Backspace = Select · A/S = L/R · hold Space to fast-forward.
-        Controllers work too: press a button on one and the controller toggle in the player turns green.
-      </p>`;
+      <p class="muted small keys-help"></p>`;
     const input = this.element.querySelector<HTMLInputElement>("input[type=file]")!;
     input.addEventListener("change", async () => {
       for (const file of input.files ?? []) await storage.addRom(file);
       input.value = "";
       await this.refresh();
     });
+  }
+
+  /** The keyboard summary under the list, built from the current bindings. */
+  setHelp(text: string) {
+    this.element.querySelector(".keys-help")!.textContent = text;
   }
 
   async refresh() {

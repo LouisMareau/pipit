@@ -1,5 +1,8 @@
 // Keyboard, controller and touch input, merged into one GBA key bit set.
 //
+// Keyboard: every action (GBA key, fast-forward, rewind, pause) is bound to one
+// `KeyboardEvent.code`; the user can rebind them in the settings.
+//
 // Controllers: the browser reports them through the Gamepad API (Chrome only
 // exposes a pad after a button is pressed on it). One pad is *active* at a time
 // and contributes only while controller input is enabled; the keyboard always
@@ -7,24 +10,8 @@
 // Each pad reads through a mapping (GBA key → button index) that the user can
 // change in the controller settings.
 
-import type { ControllerMapping, KeyName } from "../types";
-import { DEFAULT_MAPPING, Key } from "../types";
-
-const KEYBOARD: Record<string, number> = {
-  KeyZ: Key.A,
-  KeyX: Key.B,
-  Enter: Key.Start,
-  Backspace: Key.Select,
-  ShiftRight: Key.Select,
-  ArrowUp: Key.Up,
-  ArrowDown: Key.Down,
-  ArrowLeft: Key.Left,
-  ArrowRight: Key.Right,
-  KeyA: Key.L,
-  KeyS: Key.R,
-  KeyQ: Key.L,
-  KeyW: Key.R,
-};
+import type { ControllerMapping, KeyboardAction, KeyboardMapping, KeyName } from "../types";
+import { DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key } from "../types";
 
 export interface GamepadInfo {
   index: number;
@@ -40,10 +27,48 @@ export interface GamepadState {
   enabled: boolean;
 }
 
-/** A pending "press a button" request from the remapping screen. */
-export interface ButtonCapture {
-  promise: Promise<number | null>;
+/** A pending "press something" request from a remapping screen. */
+export interface Capture<T> {
+  promise: Promise<T | null>;
   cancel(): void;
+}
+
+/** Human-readable name for a `KeyboardEvent.code`. */
+export function keyLabel(code: string): string {
+  if (!code) return "—";
+  const special: Record<string, string> = {
+    Space: "Space",
+    Enter: "Enter",
+    Backspace: "Backspace",
+    Tab: "Tab",
+    Escape: "Esc",
+    ArrowUp: "↑",
+    ArrowDown: "↓",
+    ArrowLeft: "←",
+    ArrowRight: "→",
+    ShiftLeft: "Left Shift",
+    ShiftRight: "Right Shift",
+    ControlLeft: "Left Ctrl",
+    ControlRight: "Right Ctrl",
+    AltLeft: "Left Alt",
+    AltRight: "Right Alt",
+    CapsLock: "Caps Lock",
+    Backquote: "`",
+    Minus: "-",
+    Equal: "=",
+    BracketLeft: "[",
+    BracketRight: "]",
+    Backslash: "\\",
+    Semicolon: ";",
+    Quote: "'",
+    Comma: ",",
+    Period: ".",
+    Slash: "/",
+  };
+  if (special[code]) return special[code];
+  const simple = /^(Key|Digit|Numpad)(.+)$/.exec(code);
+  if (simple) return simple[1] === "Numpad" ? `Numpad ${simple[2]}` : simple[2]!;
+  return code;
 }
 
 export class Input {
@@ -57,49 +82,68 @@ export class Input {
   private active: number | null = null;
   private enabled = false;
   private mapping: ControllerMapping = DEFAULT_MAPPING;
-  private capture: { resolve: (button: number | null) => void; previous: boolean[] } | null = null;
-  readonly fastForwardKey = "Space";
-  readonly rewindKey = "KeyR";
+  private keyboardMap = new Map<string, KeyboardAction>();
+  private buttonCapture: { resolve: (button: number | null) => void; previous: boolean[] } | null = null;
+  private keyCapture: ((code: string | null) => void) | null = null;
   onChange: (keys: number) => void = () => {};
   onFastForward: (held: boolean) => void = () => {};
   onRewind: (held: boolean) => void = () => {};
+  onPause: () => void = () => {};
   onGamepads: (state: GamepadState) => void = () => {};
+
+  constructor() {
+    this.setKeyboardMapping(DEFAULT_KEYBOARD);
+  }
 
   attach(target: Window) {
     target.addEventListener("keydown", (e) => {
-      if (e.code === this.fastForwardKey) {
-        this.onFastForward(true);
+      if (this.keyCapture) {
         e.preventDefault();
+        const resolve = this.keyCapture;
+        this.keyCapture = null;
+        resolve(e.code === "Escape" ? null : e.code);
         return;
       }
-      if (e.code === this.rewindKey) {
-        if (!e.repeat) this.onRewind(true);
-        e.preventDefault();
-        return;
-      }
-      const bit = KEYBOARD[e.code];
-      if (bit === undefined) return;
+      const action = this.keyboardMap.get(e.code);
+      if (!action) return;
       e.preventDefault();
-      this.keyboard |= bit;
-      this.emit();
+      switch (action) {
+        case "FastForward":
+          if (!e.repeat) this.onFastForward(true);
+          break;
+        case "Rewind":
+          if (!e.repeat) this.onRewind(true);
+          break;
+        case "Pause":
+          if (!e.repeat) this.onPause();
+          break;
+        default:
+          this.keyboard |= Key[action];
+          this.emit();
+      }
     });
     target.addEventListener("keyup", (e) => {
-      if (e.code === this.fastForwardKey) {
-        this.onFastForward(false);
-        return;
+      const action = this.keyboardMap.get(e.code);
+      if (!action) return;
+      switch (action) {
+        case "FastForward":
+          this.onFastForward(false);
+          break;
+        case "Rewind":
+          this.onRewind(false);
+          break;
+        case "Pause":
+          break;
+        default:
+          this.keyboard &= ~Key[action];
+          this.emit();
       }
-      if (e.code === this.rewindKey) {
-        this.onRewind(false);
-        return;
-      }
-      const bit = KEYBOARD[e.code];
-      if (bit === undefined) return;
-      this.keyboard &= ~bit;
-      this.emit();
     });
     target.addEventListener("blur", () => {
       this.keyboard = 0;
       this.emit();
+      this.onFastForward(false);
+      this.onRewind(false);
     });
     target.addEventListener("gamepadconnected", () => this.refreshGamepads());
     target.addEventListener("gamepaddisconnected", () => this.refreshGamepads());
@@ -109,6 +153,34 @@ export class Input {
   setTouch(keys: number) {
     this.touch = keys;
     this.emit();
+  }
+
+  setKeyboardMapping(mapping: KeyboardMapping) {
+    this.keyboardMap.clear();
+    for (const [action, code] of Object.entries(mapping) as [KeyboardAction, string][]) {
+      if (code) this.keyboardMap.set(code, action);
+    }
+    this.keyboard = 0;
+    this.emit();
+  }
+
+  /** Waits for the next key press (Escape cancels). Game input is suspended meanwhile. */
+  captureKey(): Capture<string> {
+    this.keyCapture?.(null);
+    let resolve!: (code: string | null) => void;
+    const promise = new Promise<string | null>((r) => (resolve = r));
+    this.keyCapture = resolve;
+    this.keyboard = 0;
+    this.emit();
+    return {
+      promise,
+      cancel: () => {
+        if (this.keyCapture === resolve) {
+          this.keyCapture = null;
+          resolve(null);
+        }
+      },
+    };
   }
 
   gamepadState(): GamepadState {
@@ -148,20 +220,20 @@ export class Input {
    * Waits for the next button pressed on the active controller. Game input from
    * the controller is suspended until the capture ends.
    */
-  captureButton(): ButtonCapture {
-    this.capture?.resolve(null);
+  captureButton(): Capture<number> {
+    this.buttonCapture?.resolve(null);
     const pad = this.active !== null ? navigator.getGamepads()[this.active] : null;
     const previous = pad ? pad.buttons.map((b) => b.pressed) : [];
     let resolve!: (button: number | null) => void;
     const promise = new Promise<number | null>((r) => (resolve = r));
-    this.capture = { resolve, previous };
+    this.buttonCapture = { resolve, previous };
     this.gamepad = 0;
     this.emit();
     return {
       promise,
       cancel: () => {
-        if (this.capture?.resolve === resolve) {
-          this.capture = null;
+        if (this.buttonCapture?.resolve === resolve) {
+          this.buttonCapture = null;
           resolve(null);
         }
       },
@@ -208,12 +280,12 @@ export class Input {
       const pad = this.active !== null ? navigator.getGamepads()[this.active] : null;
       if (!pad) return;
 
-      if (this.capture) {
-        const pressed = pad.buttons.findIndex((b, i) => b.pressed && !this.capture!.previous[i]);
-        this.capture.previous = pad.buttons.map((b) => b.pressed);
+      if (this.buttonCapture) {
+        const pressed = pad.buttons.findIndex((b, i) => b.pressed && !this.buttonCapture!.previous[i]);
+        this.buttonCapture.previous = pad.buttons.map((b) => b.pressed);
         if (pressed >= 0) {
-          const { resolve } = this.capture;
-          this.capture = null;
+          const { resolve } = this.buttonCapture;
+          this.buttonCapture = null;
           resolve(pressed);
         }
         return;

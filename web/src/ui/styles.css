@@ -536,11 +536,14 @@ select {
   touch-action: none;
 }
 
+/* Both sides share one structure — shoulder row, then a main row the height of
+   the D-pad — so L and R sit at the same height whatever is below them. */
 .touch-left,
 .touch-right {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto calc(var(--touch-size) * 2.3);
   align-items: center;
+  justify-items: center;
   gap: 12px;
   min-width: 0;
 }
@@ -582,12 +585,12 @@ select {
 
 .player.touch-on[data-layout="gbasp"] .touch-left {
   grid-area: left;
-  align-items: flex-start;
+  justify-items: start;
 }
 
 .player.touch-on[data-layout="gbasp"] .touch-right {
   grid-area: right;
-  align-items: flex-end;
+  justify-items: end;
 }
 
 .player.touch-on[data-layout="gbasp"] .touch-system {
@@ -611,14 +614,14 @@ select {
 
 .player.touch-on[data-layout="gba"] .touch-left {
   grid-area: left;
-  justify-content: center;
+  align-content: center;
   padding: 8px 10px 8px calc(10px + env(safe-area-inset-left));
   background: var(--bg);
 }
 
 .player.touch-on[data-layout="gba"] .touch-right {
   grid-area: right;
-  justify-content: center;
+  align-content: center;
   padding: 8px calc(10px + env(safe-area-inset-right)) 8px 10px;
   background: var(--bg);
 }

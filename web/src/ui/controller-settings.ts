@@ -4,7 +4,7 @@
 // next press on the controller. Changes apply immediately and are saved per
 // controller model.
 
-import type { ButtonCapture } from "../platform/input";
+import type { Capture } from "../platform/input";
 import type { ControllerMapping, KeyName } from "../types";
 import { DEFAULT_MAPPING, GAMEPAD_BUTTON_NAMES, KEY_NAMES } from "../types";
 
@@ -24,12 +24,12 @@ const LABELS: Record<KeyName, string> = {
 export class ControllerSettings {
   readonly element: HTMLDivElement;
   private mapping: ControllerMapping = DEFAULT_MAPPING;
-  private capture: ButtonCapture | null = null;
+  private capture: Capture<number> | null = null;
   private capturing: KeyName | null = null;
   onChange: (mapping: ControllerMapping) => void = () => {};
   onClose: () => void = () => {};
   /** Supplied by the app: starts listening for the next controller button. */
-  captureButton: () => ButtonCapture = () => ({ promise: Promise.resolve(null), cancel() {} });
+  captureButton: () => Capture<number> = () => ({ promise: Promise.resolve(null), cancel() {} });
 
   constructor() {
     this.element = document.createElement("div");

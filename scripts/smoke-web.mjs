@@ -215,6 +215,27 @@ await pressKey("Escape", "Escape", 27);
 await sleep(200);
 const modalClosed = await evaluate("document.querySelector('.modal-backdrop').classList.contains('hidden')");
 console.log(`controller settings modal: ${JSON.stringify(modal)}, closed after Escape: ${modalClosed}`);
+
+// Keyboard remapping: open from the menu, rebind fast-forward to F, check it works.
+await evaluate("document.querySelector('[data-action=menu]').click(); document.querySelector('[data-action=keyboard]').click(); true");
+await sleep(200);
+const keyboardRows = await evaluate("document.querySelectorAll('.modal-backdrop:not(.hidden) .mapping-row').length");
+await evaluate("document.querySelector('.modal-backdrop:not(.hidden) [data-action=change][data-key=FastForward]').click(); true");
+await sleep(100);
+await pressKey("KeyF", "f", 70);
+await sleep(200);
+const fastForwardLabel = await evaluate(
+  "document.querySelector('.modal-backdrop:not(.hidden) [data-key=FastForward]').parentElement.querySelector('.mapping-value').textContent",
+);
+await pressKey("Escape", "Escape", 27);
+await sleep(200);
+await send("Input.dispatchKeyEvent", { type: "keyDown", code: "KeyF", key: "f", windowsVirtualKeyCode: 70 });
+await sleep(100);
+const fastActive = await evaluate("document.querySelector('[data-action=fast]').classList.contains('active')");
+await send("Input.dispatchKeyEvent", { type: "keyUp", code: "KeyF", key: "f", windowsVirtualKeyCode: 70 });
+await sleep(100);
+const fastReleased = await evaluate("!document.querySelector('[data-action=fast]').classList.contains('active')");
+console.log(`keyboard remap: rows=${keyboardRows}, fast-forward now "${fastForwardLabel}", works=${fastActive && fastReleased}`);
 const litPixels = await evaluate(`(() => {
   const c = document.querySelector('canvas');
   const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
@@ -251,10 +272,12 @@ for (const [name, width, height] of [
     const player = document.querySelector('.player');
     const touch = document.querySelector('.touch');
     const widest = Math.max(...Array.from(document.querySelectorAll('.player *')).map((e) => e.getBoundingClientRect().right));
+    const [l, r] = Array.from(document.querySelectorAll('.tbtn-shoulder')).map((e) => Math.round(e.getBoundingClientRect().top));
     return {
       layout: player.dataset.layout,
       touchShown: getComputedStyle(touch).display !== 'none',
       overflow: Math.round(Math.max(document.documentElement.scrollWidth, widest) - window.innerWidth),
+      shoulderMisalignment: Math.abs(l - r),
     };
   })()`);
   if (process.env.PIPIT_SMOKE_PHONE_SHOTS) {
@@ -291,11 +314,17 @@ if (
   !modal.open ||
   modal.rows !== 10 ||
   !modalClosed ||
+  keyboardRows !== 13 ||
+  fastForwardLabel !== "F" ||
+  !fastActive ||
+  !fastReleased ||
   phone.portrait.layout !== "gbasp" ||
   phone.landscape.layout !== "gba" ||
   !phone.portrait.touchShown ||
   phone.portrait.overflow > 0 ||
-  phone.landscape.overflow > 0
+  phone.landscape.overflow > 0 ||
+  phone.portrait.shoulderMisalignment > 1 ||
+  phone.landscape.shoulderMisalignment > 1
 ) {
   console.error("SMOKE TEST FAILED");
   process.exit(1);
