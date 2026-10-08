@@ -56,7 +56,13 @@ CPU's cycle count is accurate without ticking components each cycle.
 
 ## Front-ends
 
-- `web/` runs the core inside a Web Worker. Frames are posted as transferable
-  buffers; audio goes to an `AudioWorklet`. ROMs and saves live in IndexedDB on the
+- `web/` runs the core inside a Web Worker. Emulation is locked to the display:
+  the UI thread's `requestAnimationFrame` loop (`platform/pacer.ts`) asks the
+  worker for one frame per refresh on 60 Hz screens (every second refresh on
+  120 Hz; time-based on other rates), which avoids the periodic duplicated frame
+  that wall-clock pacing of 59.73 Hz content on a 60 Hz screen produces. The
+  0.46 % speed difference is absorbed by the `AudioWorklet`, which nudges its
+  resampling rate by up to ±1 % to keep its buffer near 125 ms. Frames are posted
+  as transferable buffers and recycled. ROMs and saves live in IndexedDB on the
   device and are never uploaded anywhere.
 - `desktop/` (planned) wraps the same web app with Tauri.

@@ -5,6 +5,7 @@ import { takeScreenshot } from "../features/screenshots";
 import { AudioOutput } from "../platform/audio";
 import { EmulatorClient } from "../platform/emulator-client";
 import { Input, keyLabel } from "../platform/input";
+import { FramePacer } from "../platform/pacer";
 import * as storage from "../platform/storage";
 import type { ControllerMapping, RomEntry, Settings, TouchLayout } from "../types";
 import { DEFAULT_KEYBOARD, DEFAULT_MAPPING, STATE_SLOTS } from "../types";
@@ -28,6 +29,7 @@ export class App {
   private emulator: EmulatorClient;
   private audio = new AudioOutput();
   private input = new Input();
+  private pacer = new FramePacer();
   private settings: Settings;
   private current: RomEntry | null = null;
   private paused = false;
@@ -74,6 +76,7 @@ export class App {
             <option value="off">Raw — the palette as stored in the game</option>
           </select>
         </label>
+        <label class="row color-strength"><span>Strength</span><input type="range" min="0" max="100" step="5" data-setting="colorStrength" /><span class="small strength-label"></span></label>
         <label class="row"><span>Touch layout</span>
           <select data-setting="touchLayout">
             <option value="auto">Auto (GBA in landscape, GBA SP in portrait)</option>
@@ -137,11 +140,22 @@ export class App {
     this.audio.clear();
     this.emulator.load(rom, save, null);
     await storage.touchRom(entry.id);
+    await this.refreshStateSlots();
+  }
+
+  /** Marks the Save buttons of slots that already hold a state. */
+  private async refreshStateSlots() {
+    const saved = this.current ? await storage.listStates(this.current.id) : [];
+    for (const button of this.player.querySelectorAll<HTMLElement>('[data-action="save-state"]')) {
+      const entry = saved.find((s) => s.slot === Number(button.dataset["slot"]));
+      button.classList.toggle("has-state", entry !== undefined);
+      button.title = entry ? `Saved ${new Date(entry.savedAt).toLocaleString()} — click to overwrite` : "Empty slot";
+    }
   }
 
   private backToLibrary() {
     this.emulator.requestSave();
-    this.emulator.pause();
+    this.setRunning(false);
     this.flushSave();
     this.current = null;
     this.player.classList.add("hidden");
@@ -149,8 +163,20 @@ export class App {
     void this.library.refresh();
   }
 
+  /** Starts or stops both the worker and the display loop that feeds it. */
+  private setRunning(on: boolean) {
+    if (on) {
+      this.emulator.run();
+      this.pacer.start();
+    } else {
+      this.pacer.stop();
+      this.emulator.pause();
+    }
+  }
+
   private wireEmulator() {
-    this.emulator.on("loaded", () => this.emulator.run());
+    this.pacer.onFrame = () => this.emulator.requestFrame();
+    this.emulator.on("loaded", () => this.setRunning(true));
     const fpsLabel = this.player.querySelector<HTMLElement>(".toolbar-fps")!;
     let lastFpsText = "";
     this.emulator.on("frame", (pixels, audio, fps, maxGapMs) => {
@@ -175,6 +201,7 @@ export class App {
       if (!this.current) return;
       await storage.putState(this.current.id, slot, data);
       this.toast(`State ${slot} saved`);
+      await this.refreshStateSlots();
     });
     this.emulator.on("error", (message) => this.toast(message));
   }
@@ -244,10 +271,10 @@ export class App {
   private pauseForDialog(open: boolean) {
     if (!this.current) return;
     if (open && !this.paused) {
-      this.emulator.pause();
+      this.setRunning(false);
       this.dialogPaused = true;
     } else if (!open && this.dialogPaused) {
-      this.emulator.run();
+      this.setRunning(true);
       this.dialogPaused = false;
     }
   }
@@ -285,8 +312,7 @@ export class App {
 
   private togglePause() {
     this.paused = !this.paused;
-    if (this.paused) this.emulator.pause();
-    else this.emulator.run();
+    this.setRunning(!this.paused);
     this.player.querySelector('[data-action="pause"]')!.classList.toggle("active", this.paused);
   }
 
@@ -381,7 +407,10 @@ export class App {
       else if (el.type === "checkbox") el.checked = Boolean(value);
       else el.value = String(value);
     }
-    this.emulator.setColorCorrection(this.settings.colorCorrection === "gba" ? 1 : 0);
+    const lcd = this.settings.colorCorrection === "gba";
+    this.emulator.setColorCorrection(lcd ? 1 : 0, this.settings.colorStrength / 100);
+    this.player.querySelector(".strength-label")!.textContent = `${this.settings.colorStrength}%`;
+    this.player.querySelector(".color-strength")!.classList.toggle("hidden", !lcd);
     this.audio.setVolume(this.settings.volume);
     this.screen.setIntegerScale(this.settings.integerScale);
     this.applyKeyboard();

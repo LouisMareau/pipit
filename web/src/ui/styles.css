@@ -306,6 +306,13 @@ select {
   align-items: center;
 }
 
+/* A Save slot that already holds a state. */
+.menu .btn.has-state {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
 /* Transient notices (state saved, errors) */
 .toast {
   position: fixed;

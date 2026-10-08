@@ -1,12 +1,17 @@
 // AudioWorklet processor: plays the emulator's 32768 Hz stereo samples.
 //
 // Samples arrive through the port as Int16Array chunks and sit in a ring buffer.
-// The processor resamples linearly to the context rate and fades to silence when
-// the buffer runs dry, so stalls click as little as possible.
-// Plain JS on purpose: worklet modules are loaded by URL, outside the bundler.
+// The processor resamples linearly to the context rate, nudging the rate by up
+// to ±1 % to keep the buffer near its target: emulation is locked to the display
+// (59.7275 Hz content on a 60 Hz screen runs 0.46 % fast), and clocks drift, so
+// without this the buffer would slowly over- or underflow. Underruns fade to
+// silence rather than click. Plain JS on purpose: worklet modules are loaded by
+// URL, outside the bundler.
 
 const SOURCE_RATE = 32768;
 const CAPACITY = SOURCE_RATE / 4; // 250 ms of stereo frames
+const TARGET = CAPACITY / 2; // keep ~125 ms queued
+const MAX_RATE_ADJUST = 0.01;
 
 class PipitProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -23,13 +28,16 @@ class PipitProcessor extends AudioWorkletProcessor {
       const msg = event.data;
       if (msg.type === "samples") this.push(msg.samples);
       else if (msg.type === "volume") this.volume = msg.volume;
-      else if (msg.type === "clear") this.available = 0;
+      else if (msg.type === "clear") {
+        this.available = 0;
+        this.readPos = this.writePos;
+      }
     };
   }
 
   push(samples) {
     const frames = samples.length >> 1;
-    // Drop the oldest audio if the emulator runs ahead of playback.
+    // Drop the oldest audio if the emulator runs far ahead of playback.
     if (this.available + frames > CAPACITY) {
       const drop = this.available + frames - CAPACITY;
       this.readPos = (this.readPos + drop) % CAPACITY;
@@ -41,14 +49,15 @@ class PipitProcessor extends AudioWorkletProcessor {
       this.writePos = (this.writePos + 1) % CAPACITY;
     }
     this.available += frames;
-    this.port.postMessage({ type: "level", frames: this.available });
   }
 
   process(_inputs, outputs) {
     const out = outputs[0];
     const outL = out[0];
     const outR = out[1] ?? out[0];
-    const step = SOURCE_RATE / sampleRate;
+    // Rate control: consume slightly faster when the queue is long, slower when short.
+    const error = Math.max(-1, Math.min(1, (this.available - TARGET) / TARGET));
+    const step = (SOURCE_RATE / sampleRate) * (1 + error * MAX_RATE_ADJUST);
     for (let i = 0; i < outL.length; i++) {
       if (this.available >= 2) {
         const idx = Math.floor(this.readPos);

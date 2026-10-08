@@ -182,7 +182,12 @@ await sleep(300);
 const rawWhite = await samplePixel();
 await evaluate(`(() => { const s = document.querySelector('[data-setting=colorCorrection]'); s.value = 'gba'; s.dispatchEvent(new Event('change')); })()`);
 await sleep(300);
-console.log(`colour correction: white = ${lcdWhite} (LCD) / ${rawWhite} (raw)`);
+await evaluate(`(() => { const s = document.querySelector('[data-setting=colorStrength]'); s.value = '50'; s.dispatchEvent(new Event('input')); })()`);
+await sleep(300);
+const halfWhite = await samplePixel();
+await evaluate(`(() => { const s = document.querySelector('[data-setting=colorStrength]'); s.value = '100'; s.dispatchEvent(new Event('input')); })()`);
+await sleep(300);
+console.log(`colour correction: white = ${lcdWhite} (LCD) / ${halfWhite} (50 %) / ${rawWhite} (raw)`);
 // Usually no controller is plugged in: the toggle renders gray but clickable.
 // With one connected it must be green instead, and the picker must list it.
 const pads = await evaluate("Array.from(navigator.getGamepads()).filter(Boolean).map((p) => p.id)");
@@ -277,9 +282,12 @@ console.log(`fps counter: "${fps}"; non-black pixels: ${litPixels}`);
 
 // Save states: Shift+F1 saves slot 1, F1 loads it; each shows a toast.
 const lastToast = () => evaluate("Array.from(document.querySelectorAll('.toast')).at(-1)?.textContent ?? ''");
+const slotBefore = await evaluate("document.querySelector('[data-action=save-state][data-slot=\"1\"]').classList.contains('has-state')");
 await pressKey("F1", "F1", 112, 8);
 await sleep(800);
 const savedToast = await lastToast();
+const slotAfter = await evaluate("document.querySelector('[data-action=save-state][data-slot=\"1\"]').classList.contains('has-state')");
+console.log(`save slot 1 highlighted: before=${slotBefore} after=${slotAfter}`);
 await pressKey("F1", "F1", 112);
 await sleep(800);
 const loadedToast = await lastToast();
@@ -342,7 +350,10 @@ if (
   !/\d+ fps/.test(fps) ||
   savedToast !== "State 1 saved" ||
   loadedToast !== "State 1 loaded" ||
+  slotBefore ||
+  !slotAfter ||
   lcdWhite !== 248 ||
+  halfWhite !== 251 ||
   rawWhite !== 255 ||
   !controller.present ||
   controller.active !== pads.length > 0 ||

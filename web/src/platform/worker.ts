@@ -1,6 +1,7 @@
-// The emulator runs here, off the UI thread. It paces itself against wall-clock
-// time, posts every finished frame (pixels + audio) to the UI, and reports save
-// data whenever the game writes its backup memory.
+// The emulator runs here, off the UI thread. Frames are requested by the UI's
+// display loop (`platform/pacer.ts`), so emulation stays locked to the screen's
+// refresh; only fast-forward runs free. Every finished frame (pixels + audio)
+// is posted to the UI, and save data whenever the game writes its backup memory.
 //
 // Nothing on the per-frame path allocates beyond the small audio buffer: frame
 // buffers are recycled with the UI thread. (Large per-frame allocations cause
@@ -9,19 +10,17 @@
 import init, { Emulator } from "@wasm/pipit_wasm.js";
 import type { FromWorker, ToWorker } from "../types";
 
-const FRAME_MS = 1000 / (16_777_216 / 280_896); // 59.7275 Hz
-const MAX_CATCH_UP = 3;
 const SAVE_CHECK_FRAMES = 60;
 
 let emulator: Emulator | null = null;
 let memory: WebAssembly.Memory | null = null;
 let running = false;
 let fastForward = false;
+let fastForwardTimer: ReturnType<typeof setTimeout> | null = null;
 let keys = 0;
 let colorMode = 1;
-let nextFrameAt = 0;
+let colorStrength = 1;
 let frameCounter = 0;
-let timer: ReturnType<typeof setTimeout> | null = null;
 const spareBuffers: ArrayBuffer[] = [];
 
 // Frame-rate statistics for the toolbar and for stutter diagnostics.
@@ -41,17 +40,16 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       await load(msg.rom, msg.save, msg.bios, msg.unixSeconds);
       break;
     case "run":
-      if (!running && emulator) {
-        running = true;
-        nextFrameAt = performance.now();
-        lastFrameAt = 0;
-        schedule(0);
-      }
+      running = true;
+      lastFrameAt = 0;
+      if (fastForward) startFastForward();
       break;
     case "pause":
       running = false;
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
+      stopFastForward();
+      break;
+    case "frame":
+      if (running && !fastForward) step();
       break;
     case "keys":
       keys = msg.keys;
@@ -59,11 +57,14 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       break;
     case "fastForward":
       fastForward = msg.enabled;
+      if (fastForward && running) startFastForward();
+      else stopFastForward();
       break;
     case "colors":
       colorMode = msg.mode;
+      colorStrength = msg.strength;
       if (emulator) {
-        emulator.set_color_correction(colorMode);
+        emulator.set_color_correction(colorMode, colorStrength);
         postFrame();
       }
       break;
@@ -101,7 +102,7 @@ async function load(rom: ArrayBuffer, save: ArrayBuffer | null, bios: ArrayBuffe
     if (save) emulator.load_save_data(new Uint8Array(save));
     emulator.set_time(unixSeconds);
     emulator.set_keys(keys);
-    emulator.set_color_correction(colorMode);
+    emulator.set_color_correction(colorMode, colorStrength);
     frameCounter = 0;
     post({ type: "loaded", title: emulator.title(), gameCode: emulator.game_code() });
   } catch (error) {
@@ -109,34 +110,26 @@ async function load(rom: ArrayBuffer, save: ArrayBuffer | null, bios: ArrayBuffe
   }
 }
 
-function schedule(delay: number) {
-  timer = setTimeout(tick, delay);
-}
-
-function tick() {
-  if (!running || !emulator) return;
-  const now = performance.now();
-  if (fastForward) {
-    // Run as many frames as fit in a few milliseconds, then yield.
-    const deadline = now + 12;
+/** Fast-forward: run as many frames as fit in a few milliseconds, then yield. */
+function startFastForward() {
+  if (fastForwardTimer !== null) return;
+  const burst = () => {
+    fastForwardTimer = null;
+    if (!running || !fastForward || !emulator) return;
+    const deadline = performance.now() + 12;
     let n = 0;
     while (performance.now() < deadline && n < 8) {
       step();
       n++;
     }
-    nextFrameAt = performance.now();
-    schedule(0);
-    return;
-  }
-  let frames = 0;
-  while (now >= nextFrameAt && frames < MAX_CATCH_UP) {
-    step();
-    nextFrameAt += FRAME_MS;
-    frames++;
-  }
-  // Too far behind (tab was hidden): resynchronise rather than sprinting.
-  if (now - nextFrameAt > FRAME_MS * MAX_CATCH_UP) nextFrameAt = now;
-  schedule(Math.max(0, nextFrameAt - performance.now()));
+    fastForwardTimer = setTimeout(burst, 0);
+  };
+  fastForwardTimer = setTimeout(burst, 0);
+}
+
+function stopFastForward() {
+  if (fastForwardTimer !== null) clearTimeout(fastForwardTimer);
+  fastForwardTimer = null;
 }
 
 function step() {

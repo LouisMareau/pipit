@@ -48,9 +48,13 @@ impl Emulator {
         }
     }
 
-    /// 0 = raw colours, 1 = the GBA LCD look.
-    pub fn set_color_correction(&mut self, mode: u8) {
-        self.color_lut = if mode == 1 { Some(color::lcd_lut()) } else { None };
+    /// 0 = raw colours, 1 = the GBA LCD look at `strength` (0.0-1.0).
+    pub fn set_color_correction(&mut self, mode: u8, strength: f32) {
+        self.color_lut = if mode == 1 && strength > 0.0 {
+            Some(color::lcd_lut_with_strength(f64::from(strength)))
+        } else {
+            None
+        };
         self.refresh_frame();
     }
 

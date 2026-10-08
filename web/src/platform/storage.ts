@@ -107,6 +107,14 @@ export async function getState(romId: string, slot: number): Promise<StateEntry 
   return row ?? null;
 }
 
+/** Every saved state of a game, without their data. */
+export async function listStates(romId: string): Promise<{ slot: number; savedAt: number }[]> {
+  const rows = await tx<StateEntry[]>("states", "readonly", (s) =>
+    s.getAll(IDBKeyRange.bound(`${romId}:`, `${romId}:￿`)),
+  );
+  return rows.map((r) => ({ slot: r.slot, savedAt: r.savedAt }));
+}
+
 export async function loadSettings(): Promise<Settings> {
   const row = await tx<{ key: string; value: Partial<Settings> } | undefined>("settings", "readonly", (s) =>
     s.get("settings"),

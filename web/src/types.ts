@@ -23,9 +23,11 @@ export type ToWorker =
   | { type: "load"; rom: ArrayBuffer; save: ArrayBuffer | null; bios: ArrayBuffer | null; unixSeconds: number }
   | { type: "run" }
   | { type: "pause" }
+  /** The UI's display loop asks for one emulated frame (see `platform/pacer.ts`). */
+  | { type: "frame" }
   | { type: "keys"; keys: number }
   | { type: "fastForward"; enabled: boolean }
-  | { type: "colors"; mode: number }
+  | { type: "colors"; mode: number; strength: number }
   | { type: "requestSave" }
   | { type: "saveState"; slot: number }
   | { type: "loadState"; data: ArrayBuffer }
@@ -143,6 +145,8 @@ export interface Settings {
   /** Where the touch controls go: beside the screen (GBA) or below it (GBA SP). */
   touchLayout: TouchLayout;
   colorCorrection: ColorCorrection;
+  /** How far towards the LCD look, 0-100. */
+  colorStrength: number;
   /** Button mappings, keyed by controller id. */
   controllerMappings: Record<string, ControllerMapping>;
   keyboardMapping: KeyboardMapping;
@@ -154,6 +158,7 @@ export const DEFAULT_SETTINGS: Settings = {
   alwaysShowTouch: false,
   touchLayout: "auto",
   colorCorrection: "gba",
+  colorStrength: 100,
   controllerMappings: {},
   keyboardMapping: DEFAULT_KEYBOARD,
 };

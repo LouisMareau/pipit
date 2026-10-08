@@ -19,19 +19,27 @@ const MATRIX: [[f64; 3]; 3] = [[0.82, 0.24, -0.06], [0.125, 0.665, 0.21], [0.195
 
 /// Builds the lookup table: `lut[bgr555]` is the corrected colour as RGBA bytes.
 pub fn lcd_lut() -> Vec<[u8; 4]> {
-    // 5-bit → linear light, through the same 8-bit expansion the display uses.
-    let linear: Vec<f64> = (0..32u32)
-        .map(|v| (f64::from(v << 3 | v >> 2) / 255.0).powf(TARGET_GAMMA) * LUMINANCE)
-        .collect();
+    lcd_lut_with_strength(1.0)
+}
+
+/// Like `lcd_lut`, blended towards the raw colour: `strength` 1.0 is the full
+/// LCD look, 0.0 leaves colours untouched.
+pub fn lcd_lut_with_strength(strength: f64) -> Vec<[u8; 4]> {
+    let strength = strength.clamp(0.0, 1.0);
+    // 5-bit → 8-bit as the display expands it, and from there to linear light.
+    let expanded: Vec<f64> = (0..32u32).map(|v| f64::from(v << 3 | v >> 2)).collect();
+    let linear: Vec<f64> =
+        expanded.iter().map(|x| (x / 255.0).powf(TARGET_GAMMA) * LUMINANCE).collect();
     let mut lut = Vec::with_capacity(LUT_SIZE);
     for c in 0..LUT_SIZE {
-        let r = linear[c & 0x1F];
-        let g = linear[(c >> 5) & 0x1F];
-        let b = linear[(c >> 10) & 0x1F];
+        let idx = [c & 0x1F, (c >> 5) & 0x1F, (c >> 10) & 0x1F];
+        let (r, g, b) = (linear[idx[0]], linear[idx[1]], linear[idx[2]]);
         let mut out = [0u8; 4];
         for (i, row) in MATRIX.iter().enumerate() {
             let v = (row[0] * r + row[1] * g + row[2] * b).clamp(0.0, 1.0);
-            out[i] = (v.powf(1.0 / DISPLAY_GAMMA) * 255.0).round() as u8;
+            let lcd = v.powf(1.0 / DISPLAY_GAMMA) * 255.0;
+            let raw = expanded[idx[i]];
+            out[i] = (raw + (lcd - raw) * strength).round() as u8;
         }
         out[3] = 0xFF;
         lut.push(out);
@@ -60,6 +68,16 @@ mod tests {
         assert_eq!(white[0], white[1]);
         assert_eq!(white[1], white[2]);
         assert!((240..=250).contains(&white[0]), "white became {:?}", white);
+    }
+
+    #[test]
+    fn strength_blends_towards_raw() {
+        let full = i32::from(lcd_lut_with_strength(1.0)[0x7FFF][0]);
+        let half = i32::from(lcd_lut_with_strength(0.5)[0x7FFF][0]);
+        let none = lcd_lut_with_strength(0.0)[0x7FFF];
+        assert_eq!(none, [255, 255, 255, 255]);
+        // Halfway between the raw and the LCD value, give or take rounding.
+        assert!((half - (full + 255) / 2).abs() <= 1, "full {full}, half {half}");
     }
 
     #[test]

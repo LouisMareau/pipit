@@ -69,9 +69,14 @@ export class EmulatorClient {
     this.send({ type: "fastForward", enabled });
   }
 
-  /** 0 = raw colours, 1 = GBA LCD look. */
-  setColorCorrection(mode: number) {
-    this.send({ type: "colors", mode });
+  /** Asks the worker to emulate one frame (called from the display loop). */
+  requestFrame() {
+    this.send({ type: "frame" });
+  }
+
+  /** 0 = raw colours, 1 = GBA LCD look at `strength` 0-1. */
+  setColorCorrection(mode: number, strength: number) {
+    this.send({ type: "colors", mode, strength });
   }
 
   requestSave() {
