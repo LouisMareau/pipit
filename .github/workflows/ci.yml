@@ -36,7 +36,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # The smoke test drives Chrome over a WebSocket, a Node 22+ global.
+          node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Install wasm-bindgen-cli at the version in Cargo.lock

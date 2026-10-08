@@ -135,10 +135,8 @@ pub mod words_box {
                 if v.len() != N * 4 {
                     return Err(E::invalid_length(v.len(), &self));
                 }
-                let words: Vec<u32> = v
-                    .chunks_exact(4)
-                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                    .collect();
+                let words: Vec<u32> =
+                    v.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect();
                 words.into_boxed_slice().try_into().map_err(|_| E::custom("size"))
             }
             fn visit_byte_buf<E: serde::de::Error>(self, v: Vec<u8>) -> Result<Self::Value, E> {
