@@ -9,7 +9,7 @@ exclude = ["desktop/src-tauri"]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/loupmareau/pipit"
+repository = "https://github.com/LouisMareau/pipit"
 authors = ["Loup Mareau"]
 
 # Shared dependency versions. Crates opt in with `foo = { workspace = true }`.
