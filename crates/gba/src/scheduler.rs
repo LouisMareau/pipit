@@ -19,6 +19,8 @@ pub enum Event {
     AudioSequencer,
     /// Produce one output audio sample.
     AudioSample,
+    /// A serial (multi-play) transfer finishes.
+    SioTransfer,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

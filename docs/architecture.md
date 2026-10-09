@@ -33,6 +33,8 @@ data, serialize to a save state.
 | `timers.rs` | 4 timers | Prescalers, cascade, IRQs, FIFO feeding |
 | `irq.rs` | Interrupt controller | IE / IF / IME, halt, IRQ delay |
 | `keypad.rs` | Keys | KEYINPUT / KEYCNT with IRQ conditions |
+| `sio.rs` | Serial port | Multi-play (link cable) mode with timing and IRQ; the other modes are register stubs |
+| `link.rs` | Link cable | Up to four consoles run in lockstep in one process, exchanging multi-play words |
 | `scheduler.rs` | — | Event queue driving everything above on a shared cycle counter |
 
 ### Timing model

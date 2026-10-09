@@ -4,15 +4,16 @@
 //! pipit run game.gba --frames 600 --screenshot build/shot.png
 //! pipit run test.gba --frames 60 --regs
 //! pipit bench game.gba
+//! pipit link game.gba --save a.sav --save b.sav --frames 3600 --screenshot build/link.png
 //! ```
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use pipit_gba::{Gba, Keys, SCREEN_HEIGHT, SCREEN_WIDTH};
+use pipit_gba::{Gba, Keys, Link, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 #[derive(Parser)]
 #[command(name = "pipit", version, about = "Headless GBA emulator runner")]
@@ -51,6 +52,9 @@ enum Command {
         /// e.g. `--keys 300=START,330=,600=A+RIGHT`. A key stays held until changed.
         #[arg(long)]
         keys: Option<String>,
+        /// Print memory at the end: `ADDR[:LEN]` in hex, e.g. `--peek 03005DBC:4`.
+        #[arg(long)]
+        peek: Vec<String>,
     },
     /// Measure emulation speed over a number of frames.
     Bench {
@@ -58,11 +62,49 @@ enum Command {
         #[arg(long, default_value_t = 1800)]
         frames: u32,
     },
+    /// Run two to four consoles joined by a link cable, in lockstep.
+    Link {
+        /// One ROM per console, or a single ROM shared by `--players` consoles.
+        #[arg(required = true)]
+        rom: Vec<PathBuf>,
+        /// Number of consoles when a single ROM is given.
+        #[arg(long, default_value_t = 2)]
+        players: usize,
+        /// Frames to emulate.
+        #[arg(long, default_value_t = 600)]
+        frames: u32,
+        /// Save files, one per console in order; each is written back afterwards.
+        #[arg(long)]
+        save: Vec<PathBuf>,
+        /// Key scripts, one per console in order (same syntax as `run --keys`).
+        #[arg(long)]
+        keys: Vec<String>,
+        /// Write each console's final frame as `<name>-<n>.png`.
+        #[arg(long)]
+        screenshot: Option<PathBuf>,
+        /// Print every transfer (frame number, then the word from each console).
+        #[arg(long)]
+        trace_sio: bool,
+        /// Optional BIOS image (uses the built-in replacement otherwise).
+        #[arg(long)]
+        bios: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
     match Cli::parse().command {
-        Command::Run { rom, frames, screenshot, bios, save, regs, trace, trace_skip, keys } => {
+        Command::Run {
+            rom,
+            frames,
+            screenshot,
+            bios,
+            save,
+            regs,
+            trace,
+            trace_skip,
+            keys,
+            peek,
+        } => {
             let rom_data = fs::read(&rom).with_context(|| format!("reading {}", rom.display()))?;
             let bios_data = bios.map(fs::read).transpose().context("reading BIOS")?;
             let mut gba = Gba::new(rom_data, bios_data);
@@ -98,6 +140,15 @@ fn main() -> Result<()> {
             if regs {
                 print_registers(&gba);
             }
+            for spec in &peek {
+                let (addr, len) = spec.split_once(':').unwrap_or((spec, "4"));
+                let addr = u32::from_str_radix(addr.trim_start_matches("0x"), 16)
+                    .context("bad --peek address")?;
+                let len: u32 = len.parse().context("bad --peek length")?;
+                let bytes: Vec<String> =
+                    (0..len).map(|i| format!("{:02X}", gba.bus.load8(addr + i))).collect();
+                println!("{addr:08X}: {}", bytes.join(" "));
+            }
             if let Some(path) = screenshot {
                 write_png(&path, gba.framebuffer())?;
                 println!("wrote {}", path.display());
@@ -122,8 +173,63 @@ fn main() -> Result<()> {
                 fps / 59.73
             );
         }
+        Command::Link { rom, players, frames, save, keys, screenshot, trace_sio, bios } => {
+            let roms = if rom.len() == 1 { vec![rom[0].clone(); players] } else { rom };
+            anyhow::ensure!((2..=4).contains(&roms.len()), "a link joins two to four consoles");
+            let bios_data = bios.map(fs::read).transpose().context("reading BIOS")?;
+            let mut nodes = Vec::new();
+            for (i, path) in roms.iter().enumerate() {
+                let data = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+                let mut gba = Gba::new(data, bios_data.clone());
+                if let Some(path) = save.get(i) {
+                    if let Ok(data) = fs::read(path) {
+                        gba.load_save_data(&data);
+                    }
+                }
+                println!("console {}: {} [{}]", i + 1, gba.title(), gba.game_code());
+                nodes.push(gba);
+            }
+            let scripts = keys.iter().map(|s| parse_key_script(s)).collect::<Result<Vec<_>>>()?;
+            let mut link = Link::new(nodes);
+            for frame in 0..frames {
+                for (i, script) in scripts.iter().enumerate() {
+                    if let Some((_, keys)) = script.iter().find(|(f, _)| *f == frame) {
+                        link.nodes_mut()[i].set_keys(*keys);
+                    }
+                }
+                link.run_frame();
+                if trace_sio {
+                    for w in link.take_transfers() {
+                        eprintln!(
+                            "frame {frame}: {:04X} {:04X} {:04X} {:04X}",
+                            w[0], w[1], w[2], w[3]
+                        );
+                    }
+                }
+            }
+            println!("{} transfers over {frames} frames", link.transfers());
+            if let Some(path) = screenshot {
+                for (i, node) in link.nodes().iter().enumerate() {
+                    let out = numbered(&path, i + 1);
+                    write_png(&out, node.framebuffer())?;
+                    println!("wrote {}", out.display());
+                }
+            }
+            for (i, node) in link.nodes().iter().enumerate() {
+                if let (Some(path), Some(data)) = (save.get(i), node.save_data()) {
+                    fs::write(path, data)?;
+                }
+            }
+        }
     }
     Ok(())
+}
+
+/// `build/link.png` → `build/link-2.png`.
+fn numbered(path: &Path, n: usize) -> PathBuf {
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("frame");
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("png");
+    path.with_file_name(format!("{stem}-{n}.{ext}"))
 }
 
 fn parse_key_script(script: &str) -> Result<Vec<(u32, Keys)>> {

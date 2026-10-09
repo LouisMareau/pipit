@@ -9,7 +9,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
 const MAGIC: [u8; 4] = *b"PIPT";
-const VERSION: u32 = 1;
+/// Bumped whenever the serialized layout changes; older states are refused.
+/// 2: the serial port gained state (link cable).
+const VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 struct Header {

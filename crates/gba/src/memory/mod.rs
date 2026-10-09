@@ -16,6 +16,7 @@ use crate::dma::Dma;
 use crate::irq::Irq;
 use crate::keypad::Keypad;
 use crate::scheduler::{Event, Scheduler};
+use crate::sio::Sio;
 use crate::timers::Timers;
 use crate::video::Video;
 use serde::{Deserialize, Serialize};
@@ -65,9 +66,8 @@ pub struct Bus {
     memctrl: u32,
     /// POSTFLG (0x4000300).
     postflg: u8,
-    /// Serial I/O registers are stored but not emulated (no link cable yet).
-    #[serde(with = "crate::snapshot::array")]
-    sio: [u16; 0x30],
+    /// Serial port (link cable).
+    pub sio: Sio,
 
     /// Cycles for a 16-bit access, indexed by `[region][sequential]`.
     wait16: [[u8; 2]; 16],
@@ -101,7 +101,7 @@ impl Bus {
             waitcnt: 0,
             memctrl: 0x0D00_0020,
             postflg: 0,
-            sio: [0; 0x30],
+            sio: Sio::new(),
             wait16: [[1; 2]; 16],
             wait32: [[1; 2]; 16],
             prefetch: prefetch::Prefetch::default(),
@@ -484,6 +484,7 @@ impl Bus {
                 ),
                 Event::AudioSequencer => self.audio.on_sequencer(at, &mut self.scheduler),
                 Event::AudioSample => self.audio.on_sample(at, &mut self.scheduler),
+                Event::SioTransfer => self.sio.on_transfer_end(&mut self.irq),
             }
         }
         if self.dma.has_pending() {

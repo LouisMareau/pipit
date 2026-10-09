@@ -17,7 +17,7 @@ Checked items are done and covered by tests.
 - [x] Save states (exact: restored runs continue bit-identically)
 - [x] ROM prefetch buffer timing
 - [ ] Cheat codes (GameShark / CodeBreaker)
-- [ ] Link cable (serial) — not planned for now
+- [x] Link cable: multi-play mode, up to four consoles in lockstep in one process (`pipit link`; Emerald trades with itself headless, see [link-testing.md](link-testing.md))
 
 ## Web app
 
@@ -35,6 +35,7 @@ Checked items are done and covered by tests.
 - [x] Remappable keyboard controls (⋯ menu → Change key bindings; includes fast-forward and pause)
 - [x] Colour correction: GBA LCD look (gba-color transform, precomputed 15-bit table)
 - [x] Deployed online (GitHub Pages, on every push to `main`)
+- [ ] Play together online: host a lobby, join with a code, WebRTC between browsers (the link cable with a delay)
 
 ## Desktop
 

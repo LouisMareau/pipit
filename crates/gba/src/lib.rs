@@ -21,14 +21,17 @@ pub mod cpu;
 pub mod dma;
 pub mod irq;
 pub mod keypad;
+pub mod link;
 pub mod memory;
 pub mod scheduler;
+pub mod sio;
 pub mod snapshot;
 pub mod timers;
 pub mod video;
 
 pub use cartridge::{Cartridge, SaveType};
 pub use keypad::Keys;
+pub use link::Link;
 pub use memory::Bus;
 pub use snapshot::StateError;
 
@@ -71,6 +74,34 @@ impl Gba {
     /// Runs the CPU until the scheduler clock reaches `target` cycles.
     pub fn run_until(&mut self, target: u64) {
         while self.bus.scheduler.now() < target {
+            self.cpu.step(&mut self.bus);
+        }
+    }
+
+    /// `run_frame` for a console on a [`Link`]: also returns early, with the reason,
+    /// whenever the serial port needs the link's attention. `None` means the frame
+    /// finished.
+    pub fn run_frame_linked(&mut self) -> Option<sio::Stop> {
+        loop {
+            if let Some(stop) = self.bus.sio.take_stop() {
+                return Some(stop);
+            }
+            if self.bus.video.take_frame_ready() {
+                return None;
+            }
+            self.cpu.step(&mut self.bus);
+        }
+    }
+
+    /// `run_until` for a console on a [`Link`] (see `run_frame_linked`).
+    pub fn run_until_linked(&mut self, target: u64) -> Option<sio::Stop> {
+        loop {
+            if let Some(stop) = self.bus.sio.take_stop() {
+                return Some(stop);
+            }
+            if self.bus.scheduler.now() >= target {
+                return None;
+            }
             self.cpu.step(&mut self.bus);
         }
     }

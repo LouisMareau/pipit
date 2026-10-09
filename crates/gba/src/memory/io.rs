@@ -53,7 +53,7 @@ impl Bus {
             DMA0SAD..=DMA3CNT_H => self.dma.read_io(reg),
             TM0CNT_L..=TM3CNT_H => self.timers.read_io(reg, self.scheduler.now()),
             KEYINPUT | KEYCNT => self.keypad.read_io(reg),
-            SIODATA32..=JOY_STAT => self.sio[((reg - SIODATA32) / 2) as usize],
+            SIODATA32..=JOY_STAT => self.sio.read_io(reg),
             IE | IF | IME => self.irq.read_io(reg),
             WAITCNT => self.waitcnt,
             POSTFLG => u16::from(self.postflg),
@@ -93,10 +93,7 @@ impl Bus {
             TM0CNT_L..=TM3CNT_H => self.timers.write_io(reg, value, mask, &mut self.scheduler),
             KEYINPUT => {}
             KEYCNT => self.keypad.write_io(reg, value, mask, &mut self.irq),
-            SIODATA32..=JOY_STAT => {
-                let slot = &mut self.sio[((reg - SIODATA32) / 2) as usize];
-                *slot = (*slot & !mask) | (value & mask);
-            }
+            SIODATA32..=JOY_STAT => self.sio.write_io(reg, value, mask, &mut self.scheduler),
             IE | IF | IME => self.irq.write_io(reg, value, mask),
             WAITCNT => {
                 self.waitcnt = (self.waitcnt & !mask) | (value & mask & 0x5FFF);
