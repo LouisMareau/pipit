@@ -26,6 +26,7 @@ Checked items are done and covered by tests.
 - [x] Controller support: auto-detect, toolbar toggle (click = on/off, hold = pick among several)
 - [x] Controller button remapping (gear next to the picker; saved per controller model)
 - [x] Touch layouts: GBA (beside the screen), GBA SP (below it), Auto by orientation
+- [x] Touch layout editor: drag and resize the screen and every control, saved per layout
 - [x] Audio output (AudioWorklet)
 - [x] Save data persistence (IndexedDB), .sav export/import
 - [x] Fast-forward, screenshots

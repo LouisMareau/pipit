@@ -2,11 +2,12 @@
 // and a round A/B disc. Pointer events handle multi-touch; the D-pad disc resolves
 // eight directions from the touch position so diagonals work anywhere on it.
 //
-// The DOM is grouped as a left side (L, the D-pad disc, then Select/Start) and a
-// right side (R above the A/B disc). CSS arranges them either beside the screen
-// with Start/Select stacked under the D-pad as on the console (GBA layout), or
-// below the screen with Select/Start side by side at the bottom (GBA SP layout);
-// `fit` sizes the discs to fill the space the layout gives them.
+// The DOM is grouped as a left side (L, the D-pad disc, Select) and a right side
+// (R, the A/B disc, Start). CSS arranges them either beside the screen with
+// Select and Start hugging the inner bottom corners (GBA layout), or below the
+// screen with Select/Start side by side at the bottom (GBA SP layout); `fit`
+// sizes the discs to fill the space the layout gives them. The layout editor can
+// override all of this with absolute positions (see `layout-editor.ts`).
 
 import { Key } from "../types";
 import { chevron } from "./icons";
@@ -34,10 +35,7 @@ export class TouchControls {
           <span class="pad-dot pad-dot-sw"></span>
           <span class="pad-dot pad-dot-se"></span>
         </div>
-        <div class="touch-system">
-          <button class="tbtn tbtn-pill" data-key="${Key.Select}">select</button>
-          <button class="tbtn tbtn-pill" data-key="${Key.Start}">start</button>
-        </div>
+        <button class="tbtn tbtn-pill tbtn-select" data-key="${Key.Select}">select</button>
       </div>
       <div class="touch-right">
         <button class="tbtn tbtn-shoulder" data-key="${Key.R}">R</button>
@@ -47,6 +45,7 @@ export class TouchControls {
           <span class="pad-dot pad-dot-nw"></span>
           <span class="pad-dot pad-dot-se"></span>
         </div>
+        <button class="tbtn tbtn-pill tbtn-start" data-key="${Key.Start}">start</button>
       </div>`;
 
     for (const button of this.element.querySelectorAll<HTMLButtonElement>("[data-key]")) {
@@ -123,25 +122,25 @@ export class TouchControls {
   }
 
   /**
-   * Sizes the discs to the space the layout gives them: in the GBA SP layout the
-   * bottom half of the player, in the GBA layout the columns beside the screen.
+   * Sizes the discs to the space the stock layout gives them: in the GBA SP layout
+   * the bottom half of the stage, in the GBA layout the columns beside the screen.
    */
-  fit(layout: "gba" | "gbasp", player: HTMLElement) {
+  fit(layout: "gba" | "gbasp", stage: HTMLElement) {
     const styles = getComputedStyle(this.element);
     const shoulderRow = parseFloat(styles.getPropertyValue("--shoulder-height")) || 36;
-    const systemStack = parseFloat(styles.getPropertyValue("--system-height")) || 64;
+    const pillRow = parseFloat(styles.getPropertyValue("--system-height")) || 28;
     const gap = 12;
     let size: number;
     if (layout === "gbasp") {
       // Rows: shoulders, discs, Select/Start; columns: two halves with 8px sides.
       const { clientWidth: w, clientHeight: h } = this.element;
-      const systemRow = 28 + 6;
+      const systemRow = pillRow + 6;
       const padding = 8 + 14;
       size = Math.min(h - shoulderRow - gap - systemRow - padding - 2 * gap, (w - 16) / 2 - 6);
     } else {
-      // Rows in each side column: shoulder, disc, Start/Select stack.
+      // Rows in each side column: shoulder, disc, pill.
       const left = this.element.querySelector<HTMLElement>(".touch-left")!;
-      size = Math.min(left.clientHeight - shoulderRow - systemStack - 2 * gap - 16, player.clientWidth * 0.26);
+      size = Math.min(left.clientHeight - shoulderRow - pillRow - 2 * gap - 16, stage.clientWidth * 0.26);
     }
     this.element.style.setProperty("--pad-size", `${Math.max(120, Math.floor(size))}px`);
   }

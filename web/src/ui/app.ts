@@ -7,12 +7,13 @@ import { EmulatorClient } from "../platform/emulator-client";
 import { Input, keyLabel } from "../platform/input";
 import { FramePacer } from "../platform/pacer";
 import * as storage from "../platform/storage";
-import type { ControllerMapping, RomEntry, Settings, TouchLayout } from "../types";
+import type { ControllerMapping, ResolvedTouchLayout, RomEntry, Settings, TouchLayout } from "../types";
 import { DEFAULT_KEYBOARD, DEFAULT_MAPPING, STATE_SLOTS } from "../types";
 import { ControllerSettings } from "./controller-settings";
 import { ControllerToggle } from "./controller-toggle";
 import { icon } from "./icons";
 import { KeyboardSettings } from "./keyboard-settings";
+import { LayoutEditor } from "./layout-editor";
 import { Library } from "./library";
 import { Screen } from "./screen";
 import { TouchControls } from "./touch-controls";
@@ -26,6 +27,9 @@ export class App {
   private controller = new ControllerToggle();
   private controllerSettings = new ControllerSettings();
   private keyboardSettings = new KeyboardSettings();
+  private layoutEditor: LayoutEditor;
+  /** The touch layout in effect after "auto" is resolved from the orientation. */
+  private resolvedLayout: ResolvedTouchLayout = "gbasp";
   private emulator: EmulatorClient;
   private audio = new AudioOutput();
   private input = new Input();
@@ -39,7 +43,11 @@ export class App {
   constructor(root: HTMLElement, settings: Settings) {
     this.root = root;
     // Older saved settings may predate some actions: fill the gaps with defaults.
-    this.settings = { ...settings, keyboardMapping: { ...DEFAULT_KEYBOARD, ...settings.keyboardMapping } };
+    this.settings = {
+      ...settings,
+      keyboardMapping: { ...DEFAULT_KEYBOARD, ...settings.keyboardMapping },
+      touchLayouts: settings.touchLayouts ?? {},
+    };
     this.emulator = new EmulatorClient();
     this.player = document.createElement("div");
     this.player.className = "player hidden";
@@ -59,8 +67,10 @@ export class App {
           <button class="btn btn-icon" data-action="menu" title="More" aria-label="More">${icon("more")}</button>
         </div>
       </div>
-      <div class="screen-box"></div>
-      <button class="menu-fab" data-action="menu" title="Menu" aria-label="Menu">${icon("menu", 22)}</button>
+      <div class="stage">
+        <div class="screen-box"></div>
+        <button class="menu-fab" data-action="menu" title="Menu" aria-label="Menu">${icon("menu", 22)}</button>
+      </div>
       <div class="menu-backdrop hidden" data-action="menu"></div>
       <div class="menu hidden">
         <header class="menu-header">
@@ -93,6 +103,7 @@ export class App {
             <option value="gbasp">GBA SP — controls below the screen</option>
           </select>
         </label>
+        <button class="btn" data-action="edit-layout">Edit touch layout…</button>
         <label class="row"><input type="checkbox" data-setting="integerScale" /><span>Integer pixel scaling</span></label>
         <label class="row"><input type="checkbox" data-setting="alwaysShowTouch" /><span>Always show touch controls</span></label>
         <button class="btn" data-action="fullscreen">Fullscreen</button>
@@ -100,7 +111,9 @@ export class App {
     this.screen = new Screen();
     this.player.querySelector(".screen-box")!.append(this.screen.element);
     this.player.querySelector(".toolbar-controller")!.append(this.controller.element);
-    this.player.append(this.touch.element, this.controllerSettings.element, this.keyboardSettings.element);
+    this.stage.append(this.touch.element);
+    this.layoutEditor = new LayoutEditor(this.stage);
+    this.player.append(this.controllerSettings.element, this.keyboardSettings.element);
     this.root.append(this.library.element, this.player);
 
     this.library.onPlay = (entry) => this.play(entry);
@@ -109,6 +122,7 @@ export class App {
     this.wireEmulator();
     this.wireController();
     this.wireKeyboard();
+    this.wireLayoutEditor();
 
     this.input.attach(window);
     this.input.onChange = (keys) => this.emulator.setKeys(keys);
@@ -329,6 +343,52 @@ export class App {
     this.player.querySelector('[data-action="pause"]')!.classList.toggle("active", this.paused);
   }
 
+  /** The player minus the toolbar: the screen and the touch controls. */
+  private get stage(): HTMLElement {
+    return this.player.querySelector<HTMLElement>(".stage")!;
+  }
+
+  private wireLayoutEditor() {
+    this.layoutEditor.onApplied = () => this.screen.fit();
+    this.layoutEditor.onDone = (layout) => {
+      this.settings = {
+        ...this.settings,
+        touchLayouts: { ...this.settings.touchLayouts, [this.resolvedLayout]: layout },
+      };
+      void storage.saveSettings(this.settings);
+      this.endLayoutEdit();
+      this.toast("Touch layout saved");
+    };
+    this.layoutEditor.onCancel = () => this.endLayoutEdit();
+    this.layoutEditor.onReset = () => {
+      const touchLayouts = { ...this.settings.touchLayouts };
+      delete touchLayouts[this.resolvedLayout];
+      this.settings = { ...this.settings, touchLayouts };
+      void storage.saveSettings(this.settings);
+      this.endLayoutEdit();
+      this.toast("Default layout restored");
+    };
+  }
+
+  private openLayoutEditor() {
+    if (!this.player.classList.contains("touch-on")) {
+      this.toast("Touch controls are hidden — turn on “Always show touch controls” first");
+      return;
+    }
+    this.setMenuOpen(false);
+    this.pauseForDialog(true);
+    // Start from the saved layout, or from wherever the stock layout put things.
+    const initial = this.settings.touchLayouts[this.resolvedLayout] ?? this.layoutEditor.measure();
+    this.stage.classList.add("custom", "editing");
+    this.layoutEditor.open(initial);
+  }
+
+  private endLayoutEdit() {
+    this.stage.classList.remove("editing");
+    this.pauseForDialog(false);
+    this.applyLayout();
+  }
+
   private setMenuOpen(open: boolean) {
     this.player.querySelector(".menu")!.classList.toggle("hidden", !open);
     this.player.querySelector(".menu-backdrop")!.classList.toggle("hidden", !open);
@@ -363,6 +423,9 @@ export class App {
           this.setMenuOpen(false);
           this.pauseForDialog(true);
           this.keyboardSettings.open(this.settings.keyboardMapping);
+          break;
+        case "edit-layout":
+          this.openLayoutEditor();
           break;
         case "save-state":
           this.emulator.saveState(slot);
@@ -449,6 +512,14 @@ export class App {
     this.player.dataset["layout"] = layout;
     this.player.classList.toggle("touch-on", touchOn);
 
+    // Rotating the device while editing ends the edit: the layouts are per orientation.
+    if (this.layoutEditor.isOpen && layout !== this.resolvedLayout) {
+      this.layoutEditor.close();
+      this.stage.classList.remove("editing");
+      this.pauseForDialog(false);
+    }
+    this.resolvedLayout = layout;
+
     // Landscape touch layout: no toolbar; the actions live in a drawer opened
     // from the menu disc at the top-right. Everywhere else they stay in the toolbar.
     const drawer = touchOn && layout === "gba";
@@ -461,8 +532,25 @@ export class App {
       this.setMenuOpen(false);
     }
 
-    this.screen.fit();
-    // Measure after the layout has applied.
-    requestAnimationFrame(() => this.touch.fit(layout, this.player));
+    if (this.layoutEditor.isOpen) {
+      // Mid-edit (e.g. a resize): keep the working layout on screen.
+      this.layoutEditor.reapply();
+      return;
+    }
+    const custom = touchOn ? this.settings.touchLayouts[layout] : undefined;
+    const stage = this.stage;
+    if (custom) {
+      stage.classList.add("custom");
+      this.layoutEditor.apply(custom);
+    } else {
+      stage.classList.remove("custom");
+      this.layoutEditor.clear();
+      this.screen.fit();
+      // Measure after the layout has applied.
+      requestAnimationFrame(() => {
+        this.touch.fit(layout, stage);
+        this.screen.fit();
+      });
+    }
   }
 }

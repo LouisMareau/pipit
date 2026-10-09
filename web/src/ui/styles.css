@@ -200,18 +200,25 @@ select {
   width: 100%;
   max-width: 100vw;
   overflow: hidden;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   background: #000;
-  /* Default (no touch controls): toolbar + screen. */
+}
+
+/* Everything below the toolbar: the screen and, when shown, the touch controls. */
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: auto 1fr;
-  grid-template-areas:
-    "toolbar"
-    "screen";
+  grid-template-rows: 1fr;
+  grid-template-areas: "screen";
 }
 
 .toolbar {
-  grid-area: toolbar;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -287,6 +294,10 @@ select {
 }
 
 .menu-actions:empty {
+  display: none;
+}
+
+.player:not(.touch-on) [data-action="edit-layout"] {
   display: none;
 }
 
@@ -654,33 +665,23 @@ body[data-chrome="drawer"] .toast {
   /* Disc diameter; TouchControls.fit() sets it from the space available. */
   --pad-size: 160px;
   --shoulder-height: 36px;
-  /* Start above Select: two pills and a gap. */
-  --system-height: 64px;
+  --system-height: 28px;
 }
 
 .touch-left,
 .touch-right {
   display: grid;
-  grid-template-rows: var(--shoulder-height) var(--pad-size);
   align-items: center;
   justify-items: center;
   gap: 12px;
   min-width: 0;
 }
 
-.touch-system {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 16px;
-}
-
 /* GBA SP: screen on the top half, two discs filling the bottom half, with the
    shoulders at the outer corners and Select/Start centred underneath. */
-.player.touch-on[data-layout="gbasp"] {
-  grid-template-rows: auto 1fr 1fr;
+.player.touch-on[data-layout="gbasp"] .stage {
+  grid-template-rows: 1fr 1fr;
   grid-template-areas:
-    "toolbar"
     "screen"
     "touch";
 }
@@ -693,13 +694,13 @@ body[data-chrome="drawer"] .toast {
   grid-template-areas:
     "l r"
     "left right"
-    "system system";
+    "sel sta";
   align-items: center;
   padding: 8px 8px calc(14px + env(safe-area-inset-bottom));
   background: var(--bg);
 }
 
-/* The side groups dissolve into the rows: shoulders top, discs middle, Select/Start bottom. */
+/* The side groups dissolve into the rows: shoulders top, discs middle, pills bottom. */
 .player.touch-on[data-layout="gbasp"] .touch-left,
 .player.touch-on[data-layout="gbasp"] .touch-right {
   display: contents;
@@ -725,15 +726,22 @@ body[data-chrome="drawer"] .toast {
   justify-self: center;
 }
 
-.player.touch-on[data-layout="gbasp"] .touch-system {
-  grid-area: system;
-  padding-top: 6px;
+.player.touch-on[data-layout="gbasp"] .tbtn-select {
+  grid-area: sel;
+  justify-self: end;
+  margin: 6px 8px 0 0;
+}
+
+.player.touch-on[data-layout="gbasp"] .tbtn-start {
+  grid-area: sta;
+  justify-self: start;
+  margin: 6px 0 0 8px;
 }
 
 /* GBA: the console's layout. No toolbar; discs beside the screen; L and R span
-   their column; Start above Select under the D-pad. Both columns share the same
-   three rows so L/R and the discs line up. */
-.player.touch-on[data-layout="gba"] {
+   their column; Select and Start hug the bottom corners nearest the screen.
+   Both columns share the same rows so L/R and the discs line up. */
+.player.touch-on[data-layout="gba"] .stage {
   grid-template-columns: auto 1fr auto;
   grid-template-rows: 1fr;
   grid-template-areas: "left screen right";
@@ -745,8 +753,8 @@ body[data-chrome="drawer"] .toast {
 
 .player.touch-on[data-layout="gba"] .touch-left,
 .player.touch-on[data-layout="gba"] .touch-right {
-  grid-template-rows: var(--shoulder-height) var(--pad-size) var(--system-height);
-  align-content: center;
+  grid-template-rows: var(--shoulder-height) var(--pad-size) 1fr;
+  align-content: start;
   background: var(--bg);
 }
 
@@ -764,11 +772,146 @@ body[data-chrome="drawer"] .toast {
   width: var(--pad-size);
 }
 
-.player.touch-on[data-layout="gba"] .touch-system {
-  flex-direction: column-reverse; /* Start on top, Select below */
-  gap: 8px;
+.player.touch-on[data-layout="gba"] .tbtn-select {
+  justify-self: end;
+  align-self: end;
+}
+
+.player.touch-on[data-layout="gba"] .tbtn-start {
   justify-self: start;
-  padding-left: calc(var(--pad-size) * 0.08);
+  align-self: end;
+}
+
+/* Custom layouts (from the editor): the stage is a free canvas and every element
+   is positioned absolutely by inline styles. */
+.player.touch-on .stage.custom {
+  display: block;
+  background: var(--bg);
+}
+
+.player.touch-on .stage.custom .touch {
+  display: block;
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  background: none;
+  pointer-events: none;
+}
+
+.player.touch-on .stage.custom .touch-left,
+.player.touch-on .stage.custom .touch-right {
+  display: contents;
+}
+
+.player.touch-on .stage.custom .screen-box,
+.player.touch-on .stage.custom .pad,
+.player.touch-on .stage.custom .tbtn-shoulder,
+.player.touch-on .stage.custom .tbtn-pill,
+.player.touch-on .stage.custom .menu-fab {
+  position: absolute;
+  margin: 0;
+}
+
+.player.touch-on .stage.custom .pad,
+.player.touch-on .stage.custom .tbtn-shoulder,
+.player.touch-on .stage.custom .tbtn-pill {
+  pointer-events: auto;
+}
+
+/* Editing: the controls are inert, the menu disc hides, handles sit on top. */
+.player .stage.editing .menu-fab {
+  display: none;
+}
+
+.player.touch-on .stage.editing .touch,
+.player.touch-on .stage.editing .touch * {
+  pointer-events: none;
+}
+
+.editor-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+}
+
+.edit-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  background: rgb(95 211 188 / 0.12);
+  touch-action: none;
+  cursor: move;
+}
+
+.edit-box.round {
+  border-radius: 50%;
+}
+
+.edit-box.dragging {
+  background: rgb(95 211 188 / 0.25);
+}
+
+.edit-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font: 600 12px/1 system-ui, sans-serif;
+  color: var(--accent);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.8);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.edit-grip {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.5);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.editor-bar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.5);
+  max-width: calc(100% - 16px);
+}
+
+.editor-bar .btn {
+  padding: 6px 12px;
+}
+
+/* Landscape: L and R handles own the top corners, so the bar docks at the bottom,
+   over the screen's letterbox, between Select and Start. */
+.player.drawer-mode .editor-bar {
+  top: auto;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+}
+
+.player.drawer-mode .editor-hint {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .editor-hint {
+    display: none;
+  }
 }
 
 /* Buttons */

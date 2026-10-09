@@ -316,9 +316,13 @@ for (const [name, width, height] of [
     const centre = (sel) => { const b = document.querySelector(sel).getBoundingClientRect(); return (b.top + b.bottom) / 2; };
     const dpad = document.querySelector('.dpad').getBoundingClientRect();
     const touchBox = touch.getBoundingClientRect();
-    const pills = Array.from(document.querySelectorAll('.tbtn-pill')).map((e) => ({ key: e.textContent, top: Math.round(e.getBoundingClientRect().top) }));
+    const pills = Array.from(document.querySelectorAll('.tbtn-pill')).map((e) => {
+      const b = e.getBoundingClientRect();
+      return { key: e.textContent, top: Math.round(b.top), left: Math.round(b.left), right: Math.round(b.right) };
+    });
     const start = pills.find((p) => p.key === 'start');
     const select = pills.find((p) => p.key === 'select');
+    const screen = document.querySelector('.screen-box').getBoundingClientRect();
     return {
       layout: player.dataset.layout,
       touchShown: getComputedStyle(touch).display !== 'none',
@@ -329,7 +333,10 @@ for (const [name, width, height] of [
       // How much of the control area's height the shoulder + disc column uses (GBA SP).
       fill: touchBox.height ? Math.round(((dpad.bottom - l) / touchBox.height) * 100) : null,
       shoulderWidthRatio: Math.round((document.querySelector('.tbtn-shoulder').getBoundingClientRect().width / dpad.width) * 100) / 100,
-      startAboveSelect: start.top < select.top,
+      selectLeftOfStart: select.left < start.left,
+      pillsSameRow: Math.abs(start.top - select.top) <= 1,
+      // Landscape: Select ends where the screen column begins, Start begins where it ends.
+      pillsHugScreen: select.right <= Math.round(screen.left) + 1 && start.left >= Math.round(screen.right) - 1,
       drawer: player.classList.contains('drawer-mode'),
       toolbarShown: getComputedStyle(document.querySelector('.toolbar')).display !== 'none',
       fabShown: getComputedStyle(document.querySelector('.menu-fab')).display !== 'none',
@@ -350,6 +357,46 @@ for (const [name, width, height] of [
     await evaluate("document.querySelector('.menu-backdrop').click(); true");
     await sleep(150);
     phone[name].drawerClosed = await evaluate("document.querySelector('.menu').classList.contains('hidden')");
+
+    // Layout editor: open it from the menu, drag the D-pad 40 px to the right,
+    // save, check the move stuck, then reset to the stock layout.
+    const openEditor = async () => {
+      await evaluate("document.querySelector('.menu-fab').click(); true");
+      await sleep(200);
+      await evaluate("document.querySelector('[data-action=edit-layout]').click(); true");
+      await sleep(300);
+    };
+    const dpadLeft = () => evaluate("document.querySelector('.dpad').getBoundingClientRect().left");
+    await openEditor();
+    const editing = await evaluate("document.querySelector('.stage').classList.contains('editing')");
+    const handles = await evaluate("document.querySelectorAll('.edit-box').length");
+    const before = await dpadLeft();
+    const handle = await evaluate(
+      "(() => { const r = document.querySelector('.edit-box[data-id=dpad]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()",
+    );
+    const drag = (type, dx, buttons) =>
+      send("Input.dispatchMouseEvent", { type, x: handle.x + dx, y: handle.y, button: "left", buttons, clickCount: 1 });
+    await drag("mousePressed", 0, 1);
+    await drag("mouseMoved", 20, 1);
+    await drag("mouseMoved", 40, 1);
+    await drag("mouseReleased", 40, 0);
+    await sleep(150);
+    const moved = Math.round((await dpadLeft()) - before);
+    if (process.env.PIPIT_SMOKE_PHONE_SHOTS) {
+      const s = await send("Page.captureScreenshot", { format: "png" });
+      writeFileSync(join(process.env.PIPIT_SMOKE_PHONE_SHOTS, "phone-landscape-editor.png"), Buffer.from(s.data, "base64"));
+    }
+    await evaluate("document.querySelector('[data-edit=done]').click(); true");
+    await sleep(300);
+    const saved = await evaluate(
+      "(() => { const s = document.querySelector('.stage'); return { custom: s.classList.contains('custom'), editing: s.classList.contains('editing') }; })()",
+    );
+    const savedMoved = Math.round((await dpadLeft()) - before);
+    await openEditor();
+    await evaluate("document.querySelector('[data-edit=reset]').click(); true");
+    await sleep(300);
+    const resetCustom = await evaluate("document.querySelector('.stage').classList.contains('custom')");
+    phone[name].editor = { editing, handles, moved, savedCustom: saved.custom, savedEditing: saved.editing, savedMoved, resetCustom };
   }
   if (process.env.PIPIT_SMOKE_PHONE_SHOTS) {
     const s = await send("Page.captureScreenshot", { format: "png" });
@@ -407,12 +454,22 @@ if (
   phone.portrait.drawer ||
   !phone.portrait.toolbarShown ||
   phone.portrait.fabShown ||
-  phone.portrait.startAboveSelect ||
+  !phone.portrait.selectLeftOfStart ||
+  !phone.portrait.pillsSameRow ||
   !phone.landscape.drawer ||
   phone.landscape.toolbarShown ||
   !phone.landscape.fabShown ||
-  !phone.landscape.startAboveSelect ||
+  !phone.landscape.selectLeftOfStart ||
+  !phone.landscape.pillsSameRow ||
+  !phone.landscape.pillsHugScreen ||
   phone.landscape.shoulderWidthRatio < 0.9 ||
+  !phone.landscape.editor.editing ||
+  phone.landscape.editor.handles !== 7 ||
+  Math.abs(phone.landscape.editor.moved - 40) > 2 ||
+  !phone.landscape.editor.savedCustom ||
+  phone.landscape.editor.savedEditing ||
+  Math.abs(phone.landscape.editor.savedMoved - 40) > 2 ||
+  phone.landscape.editor.resetCustom ||
   !phone.landscape.drawerOpen ||
   phone.landscape.drawerTitle !== romTitle ||
   phone.landscape.drawerActions < 5 ||

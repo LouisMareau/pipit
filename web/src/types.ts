@@ -132,6 +132,22 @@ export const DEFAULT_KEYBOARD: KeyboardMapping = {
 };
 
 export type TouchLayout = "auto" | "gba" | "gbasp";
+/** A touch layout after "auto" has been resolved from the orientation. */
+export type ResolvedTouchLayout = "gba" | "gbasp";
+
+/** Everything the layout editor can move and resize. */
+export type ControlId = "screen" | "dpad" | "abpad" | "l" | "r" | "select" | "start";
+export const CONTROL_IDS: ControlId[] = ["screen", "dpad", "abpad", "l", "r", "select", "start"];
+
+/** Position and size as fractions (0-1) of the stage, the player minus the toolbar. */
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export type CustomLayout = Record<ControlId, Box>;
 
 /** "gba" reproduces the muted colours of the original LCD; "off" shows raw palettes. */
 export type ColorCorrection = "off" | "gba";
@@ -144,6 +160,8 @@ export interface Settings {
   alwaysShowTouch: boolean;
   /** Where the touch controls go: beside the screen (GBA) or below it (GBA SP). */
   touchLayout: TouchLayout;
+  /** Layouts arranged in the editor, per touch layout; absent = the stock layout. */
+  touchLayouts: Partial<Record<ResolvedTouchLayout, CustomLayout>>;
   colorCorrection: ColorCorrection;
   /** How far towards the LCD look, 0-100. */
   colorStrength: number;
@@ -157,6 +175,7 @@ export const DEFAULT_SETTINGS: Settings = {
   integerScale: false,
   alwaysShowTouch: false,
   touchLayout: "auto",
+  touchLayouts: {},
   colorCorrection: "gba",
   colorStrength: 100,
   controllerMappings: {},
