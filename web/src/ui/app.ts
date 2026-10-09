@@ -232,11 +232,18 @@ export class App {
   }
 
   // Controller toggle: detection drives the button; the button drives the input.
+  /** Whether a controller was present at the last detection, for the connect/disconnect notices. */
+  private padConnected = false;
   private wireController() {
     this.input.onGamepads = (state) => {
       this.controller.update(state);
       this.input.setMapping(this.mappingFor(this.input.activeGamepadId()));
-      if (state.enabled && state.active !== null) this.toast("Controller connected");
+      // Only a change is worth a notice; switching input on or off is not one.
+      const connected = state.active !== null;
+      if (connected !== this.padConnected) {
+        this.toast(connected ? "Controller connected" : "Controller disconnected", { brief: true });
+      }
+      this.padConnected = connected;
     };
     this.controller.onToggle = (enabled) => this.input.setGamepadEnabled(enabled);
     this.controller.onSelect = (index) => this.input.setActiveGamepad(index);
@@ -261,7 +268,9 @@ export class App {
       this.input.setMapping(mapping);
     };
     this.controllerSettings.onClose = () => this.pauseForDialog(false);
-    this.controller.update(this.input.gamepadState());
+    const initial = this.input.gamepadState();
+    this.padConnected = initial.active !== null;
+    this.controller.update(initial);
   }
 
   private mappingFor(id: string | null): ControllerMapping {
@@ -283,12 +292,16 @@ export class App {
     const m = this.settings.keyboardMapping;
     this.input.setKeyboardMapping(m);
     const k = (code: string) => keyLabel(code);
-    this.library.setHelp(
-      `Keyboard: ${k(m.Up)}${k(m.Down)}${k(m.Left)}${k(m.Right)} = D-pad · ${k(m.A)} = A · ${k(m.B)} = B · ` +
-        `${k(m.Start)} = Start · ${k(m.Select)} = Select · ${k(m.L)}/${k(m.R)} = L/R · ` +
-        `hold ${k(m.FastForward)} to fast-forward · ${k(m.Pause)} pauses. ` +
-        `Change them in the player's ⋯ menu. Controllers work too: press a button on one.`,
-    );
+    this.library.setKeys([
+      { action: "D-pad", keys: [k(m.Up), k(m.Down), k(m.Left), k(m.Right)] },
+      { action: "A", keys: [k(m.A)] },
+      { action: "B", keys: [k(m.B)] },
+      { action: "Start", keys: [k(m.Start)] },
+      { action: "Select", keys: [k(m.Select)] },
+      { action: "L / R", keys: [k(m.L), k(m.R)] },
+      { action: "Fast-forward", keys: [k(m.FastForward)], note: "hold" },
+      { action: "Pause", keys: [k(m.Pause)] },
+    ]);
   }
 
   /** Dialogs pause the game, unless the player had paused it already. */
@@ -322,14 +335,18 @@ export class App {
     this.toast(`State ${slot} loaded`);
   }
 
-  private toast(message: string) {
+  /** Shows a notice card; a `brief` one (controller events) stays about a second. */
+  private toast(message: string, options: { brief?: boolean } = {}) {
     // One notice at a time: a new one replaces whatever is still showing.
     for (const old of document.querySelectorAll(".toast")) old.remove();
     const el = document.createElement("div");
-    el.className = "toast";
+    el.className = options.brief ? "toast brief" : "toast";
     el.textContent = message;
     document.body.append(el);
-    el.addEventListener("animationend", () => el.remove());
+    // The card fades in, holds, then slides off the screen; it goes once the slide ends.
+    el.addEventListener("animationend", (e) => {
+      if (e.animationName === "toast-out") el.remove();
+    });
   }
 
   private setFastForward(on: boolean) {

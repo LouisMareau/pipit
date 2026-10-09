@@ -32,7 +32,7 @@ Checked items are done and covered by tests.
 - [x] Fast-forward, screenshots
 - [x] Installable PWA, offline
 - [x] Save state slots (3 slots, Shift+F1–F3 / F1–F3)
-- [x] Remappable keyboard controls (⋯ menu → Change key bindings; includes fast-forward, rewind, pause)
+- [x] Remappable keyboard controls (⋯ menu → Change key bindings; includes fast-forward and pause)
 - [x] Colour correction: GBA LCD look (gba-color transform, precomputed 15-bit table)
 - [x] Deployed online (GitHub Pages, on every push to `main`)
 
@@ -41,3 +41,7 @@ Checked items are done and covered by tests.
 - [x] Tauri shell (`desktop/`, installers via `npm run build`)
 - [ ] Native file associations (.gba double-click)
 - [ ] Code-signed releases
+
+## Later
+
+- [ ] GBC core — the library already has a hidden GBC tab waiting for it

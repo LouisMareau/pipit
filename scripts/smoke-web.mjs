@@ -155,6 +155,36 @@ await sleep(1500);
 
 const romCount = await evaluate("document.querySelectorAll('.rom-main').length");
 console.log(`library entries: ${romCount}`);
+
+// Landing page: a GBA tab (GBC hidden for now), an "Add a .gba ROM" button with an
+// (i) popover instead of a caption, and the keyboard summary as an info box that
+// fits the width.
+const landingCheck = `(() => {
+  const help = document.querySelector('.keys-help');
+  const pop = document.querySelector('.info-pop');
+  const hidden = (el) => !el || getComputedStyle(el).display === 'none';
+  const before = hidden(pop);
+  document.querySelector('.info-btn').click();
+  const open = !hidden(pop);
+  document.body.click();
+  return {
+    activeTab: document.querySelector('.tabs .tab.active')?.textContent,
+    gbcHidden: hidden(document.querySelector('.tab[data-tab=gbc]')),
+    addLabel: document.querySelector('.add-rom .btn')?.textContent.replace(/\s+/g, ' ').trim(),
+    popHiddenBefore: before,
+    popOpensOnTap: open,
+    popClosesOutside: hidden(pop),
+    kbd: document.querySelectorAll('.keys-help kbd').length,
+    helpOverflow: help.scrollWidth - help.clientWidth,
+    pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
+  };
+})()`;
+const landing = await evaluate(landingCheck);
+console.log(`landing: ${JSON.stringify(landing)}`);
+if (process.env.PIPIT_SMOKE_LIBRARY_SHOTS) {
+  const s = await send("Page.captureScreenshot", { format: "png" });
+  writeFileSync(join(process.env.PIPIT_SMOKE_LIBRARY_SHOTS, "library-desktop.png"), Buffer.from(s.data, "base64"));
+}
 await evaluate("document.querySelector('.rom-main').click(); true");
 await sleep(4000);
 
@@ -293,7 +323,11 @@ console.log(`save slot 1 highlighted: before=${slotBefore} after=${slotAfter}`);
 await pressKey("F1", "F1", 112);
 await sleep(800);
 const loadedToast = await lastToast();
-console.log(`save state: "${savedToast}" / "${loadedToast}"`);
+// Notices are cards that animate in and slide off; the element goes with the slide.
+const toastAnimation = await evaluate("getComputedStyle(document.querySelector('.toast')).animationName");
+await sleep(3000);
+const toastGone = await evaluate("document.querySelectorAll('.toast').length === 0");
+console.log(`save state: "${savedToast}" / "${loadedToast}"; toast animation "${toastAnimation}", gone after 3 s: ${toastGone}`);
 
 // Phone check: emulate a touch device in both orientations; nothing may overflow
 // horizontally, and the touch layout must follow the orientation (Auto setting).
@@ -434,7 +468,29 @@ mkdirSync(dirname(screenshot), { recursive: true });
 writeFileSync(screenshot, Buffer.from(shot.data, "base64"));
 console.log(`screenshot: ${screenshot}`);
 
+// Back to the library on a phone: the landing page has to fit that width too.
+await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+await evaluate("document.querySelector('[data-action=back]').click(); true");
+await sleep(500);
+const landingPhone = await evaluate(landingCheck);
+console.log(`landing (phone): ${JSON.stringify(landingPhone)}`);
+if (process.env.PIPIT_SMOKE_LIBRARY_SHOTS) {
+  const s = await send("Page.captureScreenshot", { format: "png" });
+  writeFileSync(join(process.env.PIPIT_SMOKE_LIBRARY_SHOTS, "library-phone.png"), Buffer.from(s.data, "base64"));
+}
+await send("Emulation.clearDeviceMetricsOverride");
+
 const problems = logs.filter((l) => /^(error|exception)/.test(l));
+const landingOk = (l) =>
+  l.activeTab === "GBA" &&
+  l.gbcHidden &&
+  l.addLabel === "Add a .gba ROM" &&
+  l.popHiddenBefore &&
+  l.popOpensOnTap &&
+  l.popClosesOutside &&
+  l.kbd === 12 &&
+  l.helpOverflow <= 0 &&
+  l.pageOverflow <= 0;
 dumpLogs();
 ws.close();
 if (
@@ -495,7 +551,11 @@ if (
   !phone.landscape.drawerOpen ||
   phone.landscape.drawerTitle !== romTitle ||
   phone.landscape.drawerActions < 5 ||
-  !phone.landscape.drawerClosed
+  !phone.landscape.drawerClosed ||
+  !/toast-in/.test(toastAnimation) ||
+  !toastGone ||
+  !landingOk(landing) ||
+  !landingOk(landingPhone)
 ) {
   console.error("SMOKE TEST FAILED");
   process.exit(1);
