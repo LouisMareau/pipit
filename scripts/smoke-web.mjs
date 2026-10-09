@@ -10,7 +10,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const [romArg, url = "http://localhost:4173", shotArg] = process.argv.slice(2);
@@ -21,6 +21,8 @@ if (!romArg) {
 const rom = resolve(romArg);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const screenshot = resolve(shotArg ?? join(root, "build", "smoke.png"));
+// The library names a game after its file, minus the extension.
+const romTitle = basename(rom).replace(/\.gba$/i, "");
 
 const candidates = [
   process.env.PIPIT_BROWSER,
@@ -412,7 +414,7 @@ if (
   !phone.landscape.startAboveSelect ||
   phone.landscape.shoulderWidthRatio < 0.9 ||
   !phone.landscape.drawerOpen ||
-  phone.landscape.drawerTitle !== "nes" ||
+  phone.landscape.drawerTitle !== romTitle ||
   phone.landscape.drawerActions < 5 ||
   !phone.landscape.drawerClosed
 ) {
