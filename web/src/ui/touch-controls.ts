@@ -138,9 +138,15 @@ export class TouchControls {
       const padding = 8 + 14;
       size = Math.min(h - shoulderRow - gap - systemRow - padding - 2 * gap, (w - 16) / 2 - 6);
     } else {
-      // Rows in each side column: shoulder, disc, pill.
+      // Rows in each side column: shoulder at the top, then the disc and pill
+      // anchored at the bottom. The discs stay small so a thumb resting on the
+      // bottom corner of the phone reaches everything without stretching inward.
       const left = this.element.querySelector<HTMLElement>(".touch-left")!;
-      size = Math.min(left.clientHeight - shoulderRow - pillRow - 2 * gap - 16, stage.clientWidth * 0.26);
+      size = Math.min(
+        left.clientHeight - shoulderRow - pillRow - 2 * gap - 16,
+        stage.clientWidth * 0.19,
+        stage.clientHeight * 0.45,
+      );
     }
     this.element.style.setProperty("--pad-size", `${Math.max(120, Math.floor(size))}px`);
   }

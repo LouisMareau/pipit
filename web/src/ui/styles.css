@@ -738,9 +738,10 @@ body[data-chrome="drawer"] .toast {
   margin: 6px 0 0 8px;
 }
 
-/* GBA: the console's layout. No toolbar; discs beside the screen; L and R span
-   their column; Select and Start hug the bottom corners nearest the screen.
-   Both columns share the same rows so L/R and the discs line up. */
+/* GBA: the console's layout. No toolbar; L and R span the top of their column;
+   the discs sit at the bottom, where thumbs rest when holding the phone, with
+   Select and Start below them hugging the corners nearest the screen. Both
+   columns share the same rows so L/R and the discs line up. */
 .player.touch-on[data-layout="gba"] .stage {
   grid-template-columns: auto 1fr auto;
   grid-template-rows: 1fr;
@@ -753,9 +754,24 @@ body[data-chrome="drawer"] .toast {
 
 .player.touch-on[data-layout="gba"] .touch-left,
 .player.touch-on[data-layout="gba"] .touch-right {
-  grid-template-rows: var(--shoulder-height) var(--pad-size) 1fr;
-  align-content: start;
+  grid-template-rows: var(--shoulder-height) 1fr var(--pad-size) var(--system-height);
+  align-content: stretch;
   background: var(--bg);
+}
+
+.player.touch-on[data-layout="gba"] .touch-left > .tbtn-shoulder,
+.player.touch-on[data-layout="gba"] .touch-right > .tbtn-shoulder {
+  grid-row: 1;
+}
+
+.player.touch-on[data-layout="gba"] .touch-left > .pad,
+.player.touch-on[data-layout="gba"] .touch-right > .pad {
+  grid-row: 3;
+}
+
+.player.touch-on[data-layout="gba"] .touch-left > .tbtn-pill,
+.player.touch-on[data-layout="gba"] .touch-right > .tbtn-pill {
+  grid-row: 4;
 }
 
 .player.touch-on[data-layout="gba"] .touch-left {
@@ -875,6 +891,12 @@ body[data-chrome="drawer"] .toast {
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.5);
   cursor: nwse-resize;
   touch-action: none;
+}
+
+/* The screen can span the whole width, so its grip stays inside the box. */
+.edit-box[data-id="screen"] .edit-grip {
+  right: 6px;
+  bottom: 6px;
 }
 
 .editor-bar {

@@ -343,6 +343,25 @@ for (const [name, width, height] of [
       toolbarIcons: document.querySelectorAll('.toolbar svg').length,
     };
   })()`);
+  if (name === "portrait") {
+    // The editor is reachable from the toolbar menu in portrait too; Cancel leaves no trace.
+    await evaluate("document.querySelector('.toolbar [data-action=menu]').click(); true");
+    await sleep(200);
+    await evaluate("document.querySelector('[data-action=edit-layout]').click(); true");
+    await sleep(300);
+    const editing = await evaluate("document.querySelector('.stage').classList.contains('editing')");
+    const handles = await evaluate("document.querySelectorAll('.edit-box').length");
+    if (process.env.PIPIT_SMOKE_PHONE_SHOTS) {
+      const s = await send("Page.captureScreenshot", { format: "png" });
+      writeFileSync(join(process.env.PIPIT_SMOKE_PHONE_SHOTS, "phone-portrait-editor.png"), Buffer.from(s.data, "base64"));
+    }
+    await evaluate("document.querySelector('[data-edit=cancel]').click(); true");
+    await sleep(300);
+    const cancelled = await evaluate(
+      "(() => { const s = document.querySelector('.stage'); return !s.classList.contains('custom') && !s.classList.contains('editing'); })()",
+    );
+    phone[name].editor = { editing, handles, cancelled };
+  }
   if (name === "landscape") {
     // The menu disc opens the drawer with the game title; the backdrop closes it.
     await evaluate("document.querySelector('.menu-fab').click(); true");
@@ -456,6 +475,9 @@ if (
   phone.portrait.fabShown ||
   !phone.portrait.selectLeftOfStart ||
   !phone.portrait.pillsSameRow ||
+  !phone.portrait.editor.editing ||
+  phone.portrait.editor.handles !== 7 ||
+  !phone.portrait.editor.cancelled ||
   !phone.landscape.drawer ||
   phone.landscape.toolbarShown ||
   !phone.landscape.fabShown ||
