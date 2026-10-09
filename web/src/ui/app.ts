@@ -45,20 +45,29 @@ export class App {
     this.player.className = "player hidden";
     const slotButtons = (action: string) =>
       Array.from({ length: STATE_SLOTS }, (_, i) => `<button class="btn" data-action="${action}" data-slot="${i + 1}">${i + 1}</button>`).join("");
+    // `.actions` lives in the toolbar, or inside the menu drawer in the landscape
+    // touch layout (see applyLayout).
     this.player.innerHTML = `
       <div class="toolbar">
-        <button class="btn btn-icon" data-action="back" title="Library" aria-label="Library">${icon("back")}</button>
-        <span class="toolbar-title"></span>
-        <span class="toolbar-fps muted small"></span>
-        <span class="toolbar-spacer"></span>
-        <span class="toolbar-controller"></span>
-        <button class="btn btn-icon" data-action="pause" title="Pause" aria-label="Pause">${icon("pause")}</button>
-        <button class="btn btn-icon" data-action="fast" title="Fast-forward" aria-label="Fast-forward">${icon("fastForward")}</button>
-        <button class="btn btn-icon" data-action="shot" title="Screenshot" aria-label="Screenshot">${icon("camera")}</button>
-        <button class="btn btn-icon" data-action="menu" title="More" aria-label="More">${icon("more")}</button>
+        <div class="actions">
+          <button class="btn btn-icon" data-action="back" title="Library" aria-label="Library">${icon("back")}</button>
+          <span class="toolbar-spacer"></span>
+          <span class="toolbar-controller"></span>
+          <button class="btn btn-icon" data-action="pause" title="Pause" aria-label="Pause">${icon("pause")}</button>
+          <button class="btn btn-icon" data-action="fast" title="Fast-forward" aria-label="Fast-forward">${icon("fastForward")}</button>
+          <button class="btn btn-icon" data-action="shot" title="Screenshot" aria-label="Screenshot">${icon("camera")}</button>
+          <button class="btn btn-icon" data-action="menu" title="More" aria-label="More">${icon("more")}</button>
+        </div>
       </div>
       <div class="screen-box"></div>
+      <button class="menu-fab" data-action="menu" title="Menu" aria-label="Menu">${icon("menu", 22)}</button>
+      <div class="menu-backdrop hidden" data-action="menu"></div>
       <div class="menu hidden">
+        <header class="menu-header">
+          <h3 class="menu-title"></h3>
+          <span class="toolbar-fps muted small"></span>
+        </header>
+        <div class="menu-actions"></div>
         <h4>Save states</h4>
         <div class="slots"><span class="small">Save</span>${slotButtons("save-state")}</div>
         <div class="slots"><span class="small">Load</span>${slotButtons("load-state")}</div>
@@ -132,7 +141,8 @@ export class App {
     const save = await storage.getSave(entry.id);
     this.current = entry;
     this.paused = false;
-    this.player.querySelector(".toolbar-title")!.textContent = entry.name;
+    this.player.querySelector(".menu-title")!.textContent = entry.name;
+    this.setMenuOpen(false);
     this.library.element.classList.add("hidden");
     this.player.classList.remove("hidden");
     this.applyLayout();
@@ -157,6 +167,7 @@ export class App {
     this.emulator.requestSave();
     this.setRunning(false);
     this.flushSave();
+    this.setMenuOpen(false);
     this.current = null;
     this.player.classList.add("hidden");
     this.library.element.classList.remove("hidden");
@@ -298,6 +309,8 @@ export class App {
   }
 
   private toast(message: string) {
+    // One notice at a time: a new one replaces whatever is still showing.
+    for (const old of document.querySelectorAll(".toast")) old.remove();
     const el = document.createElement("div");
     el.className = "toast";
     el.textContent = message;
@@ -316,8 +329,16 @@ export class App {
     this.player.querySelector('[data-action="pause"]')!.classList.toggle("active", this.paused);
   }
 
+  private setMenuOpen(open: boolean) {
+    this.player.querySelector(".menu")!.classList.toggle("hidden", !open);
+    this.player.querySelector(".menu-backdrop")!.classList.toggle("hidden", !open);
+  }
+
+  private isMenuOpen(): boolean {
+    return !this.player.querySelector(".menu")!.classList.contains("hidden");
+  }
+
   private wireToolbar() {
-    const menu = this.player.querySelector<HTMLDivElement>(".menu")!;
     this.player.addEventListener("click", async (e) => {
       const button = (e.target as HTMLElement).closest<HTMLElement>("[data-action]");
       if (!button || button.closest(".modal-backdrop")) return;
@@ -336,10 +357,10 @@ export class App {
           await takeScreenshot(this.screen, this.current?.name ?? "pipit");
           break;
         case "menu":
-          menu.classList.toggle("hidden");
+          this.setMenuOpen(!this.isMenuOpen());
           break;
         case "keyboard":
-          menu.classList.add("hidden");
+          this.setMenuOpen(false);
           this.pauseForDialog(true);
           this.keyboardSettings.open(this.settings.keyboardMapping);
           break;
@@ -371,6 +392,7 @@ export class App {
     });
     window.addEventListener("keydown", (e) => {
       if (!this.current) return;
+      if (e.code === "Escape") this.setMenuOpen(false);
       const fkey = /^F([1-9])$/.exec(e.code);
       if (fkey) {
         const slot = Number(fkey[1]);
@@ -423,8 +445,22 @@ export class App {
     const coarse = matchMedia("(pointer: coarse)").matches;
     const chosen: TouchLayout = this.settings.touchLayout;
     const layout = chosen === "auto" ? (landscape ? "gba" : "gbasp") : chosen;
+    const touchOn = coarse || this.settings.alwaysShowTouch;
     this.player.dataset["layout"] = layout;
-    this.player.classList.toggle("touch-on", coarse || this.settings.alwaysShowTouch);
+    this.player.classList.toggle("touch-on", touchOn);
+
+    // Landscape touch layout: no toolbar; the actions live in a drawer opened
+    // from the menu disc at the top-right. Everywhere else they stay in the toolbar.
+    const drawer = touchOn && layout === "gba";
+    this.player.classList.toggle("drawer-mode", drawer);
+    document.body.dataset["chrome"] = drawer ? "drawer" : "toolbar";
+    const actions = this.player.querySelector(".actions")!;
+    const slot = this.player.querySelector(drawer ? ".menu-actions" : ".toolbar")!;
+    if (actions.parentElement !== slot) {
+      slot.append(actions);
+      this.setMenuOpen(false);
+    }
+
     this.screen.fit();
     // Measure after the layout has applied.
     requestAnimationFrame(() => this.touch.fit(layout, this.player));

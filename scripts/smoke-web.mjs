@@ -314,6 +314,9 @@ for (const [name, width, height] of [
     const centre = (sel) => { const b = document.querySelector(sel).getBoundingClientRect(); return (b.top + b.bottom) / 2; };
     const dpad = document.querySelector('.dpad').getBoundingClientRect();
     const touchBox = touch.getBoundingClientRect();
+    const pills = Array.from(document.querySelectorAll('.tbtn-pill')).map((e) => ({ key: e.textContent, top: Math.round(e.getBoundingClientRect().top) }));
+    const start = pills.find((p) => p.key === 'start');
+    const select = pills.find((p) => p.key === 'select');
     return {
       layout: player.dataset.layout,
       touchShown: getComputedStyle(touch).display !== 'none',
@@ -323,9 +326,29 @@ for (const [name, width, height] of [
       padSize: Math.round(dpad.width),
       // How much of the control area's height the shoulder + disc column uses (GBA SP).
       fill: touchBox.height ? Math.round(((dpad.bottom - l) / touchBox.height) * 100) : null,
+      shoulderWidthRatio: Math.round((document.querySelector('.tbtn-shoulder').getBoundingClientRect().width / dpad.width) * 100) / 100,
+      startAboveSelect: start.top < select.top,
+      drawer: player.classList.contains('drawer-mode'),
+      toolbarShown: getComputedStyle(document.querySelector('.toolbar')).display !== 'none',
+      fabShown: getComputedStyle(document.querySelector('.menu-fab')).display !== 'none',
       toolbarIcons: document.querySelectorAll('.toolbar svg').length,
     };
   })()`);
+  if (name === "landscape") {
+    // The menu disc opens the drawer with the game title; the backdrop closes it.
+    await evaluate("document.querySelector('.menu-fab').click(); true");
+    await sleep(250);
+    phone[name].drawerOpen = await evaluate("!document.querySelector('.menu').classList.contains('hidden')");
+    phone[name].drawerTitle = await evaluate("document.querySelector('.menu-title').textContent");
+    phone[name].drawerActions = await evaluate("document.querySelectorAll('.menu .actions [data-action]').length");
+    if (process.env.PIPIT_SMOKE_PHONE_SHOTS) {
+      const s = await send("Page.captureScreenshot", { format: "png" });
+      writeFileSync(join(process.env.PIPIT_SMOKE_PHONE_SHOTS, "phone-landscape-drawer.png"), Buffer.from(s.data, "base64"));
+    }
+    await evaluate("document.querySelector('.menu-backdrop').click(); true");
+    await sleep(150);
+    phone[name].drawerClosed = await evaluate("document.querySelector('.menu').classList.contains('hidden')");
+  }
   if (process.env.PIPIT_SMOKE_PHONE_SHOTS) {
     const s = await send("Page.captureScreenshot", { format: "png" });
     writeFileSync(join(process.env.PIPIT_SMOKE_PHONE_SHOTS, `phone-${name}.png`), Buffer.from(s.data, "base64"));
@@ -378,7 +401,20 @@ if (
   phone.landscape.shoulderMisalignment > 1 ||
   phone.portrait.groupMisalignment > 1 ||
   phone.landscape.groupMisalignment > 1 ||
-  phone.portrait.toolbarIcons < 6
+  phone.portrait.toolbarIcons < 6 ||
+  phone.portrait.drawer ||
+  !phone.portrait.toolbarShown ||
+  phone.portrait.fabShown ||
+  phone.portrait.startAboveSelect ||
+  !phone.landscape.drawer ||
+  phone.landscape.toolbarShown ||
+  !phone.landscape.fabShown ||
+  !phone.landscape.startAboveSelect ||
+  phone.landscape.shoulderWidthRatio < 0.9 ||
+  !phone.landscape.drawerOpen ||
+  phone.landscape.drawerTitle !== "nes" ||
+  phone.landscape.drawerActions < 5 ||
+  !phone.landscape.drawerClosed
 ) {
   console.error("SMOKE TEST FAILED");
   process.exit(1);

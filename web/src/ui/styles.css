@@ -220,13 +220,12 @@ select {
   background: var(--bg);
 }
 
-.toolbar-title {
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
   min-width: 0;
-  flex: 0 1 auto;
 }
 
 .toolbar-fps {
@@ -269,6 +268,95 @@ select {
   width: min(320px, calc(100vw - 16px));
   max-height: calc(100% - 64px);
   overflow: auto;
+}
+
+.menu-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.menu-title {
+  margin: 0;
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.menu-actions:empty {
+  display: none;
+}
+
+.menu-actions .actions {
+  flex-wrap: wrap;
+}
+
+/* Closes the menu on a tap outside; transparent under the popover, dimmed under the drawer. */
+.menu-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+}
+
+/* The menu disc: landscape touch layout only. */
+.menu-fab {
+  display: none;
+}
+
+.player.drawer-mode .toolbar {
+  display: none;
+}
+
+/* Sits over the top-right corner of the screen column (the letterbox bar on
+   phones), so it takes no room from the controls and never covers R. */
+.player.drawer-mode .menu-fab {
+  grid-area: screen;
+  justify-self: end;
+  align-self: start;
+  margin: 8px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(39 43 52 / 0.85);
+  color: var(--text);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.player.drawer-mode .menu-backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+
+.player.drawer-mode .menu {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(320px, 85vw);
+  max-height: none;
+  border-radius: 0;
+  padding: 16px calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) 16px;
+  box-shadow: -12px 0 32px rgb(0 0 0 / 0.5);
+  animation: drawer 0.18s ease;
+}
+
+@keyframes drawer {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+/* In the drawer the actions wrap into a row; the "more" button and spacer are redundant. */
+.player.drawer-mode .actions [data-action="menu"],
+.player.drawer-mode .actions .toolbar-spacer {
+  display: none;
 }
 
 .menu .row {
@@ -317,6 +405,10 @@ select {
   left: 50%;
   top: calc(64px + env(safe-area-inset-top));
   transform: translateX(-50%);
+}
+
+body[data-chrome="drawer"] .toast {
+  top: calc(12px + env(safe-area-inset-top));
   z-index: 30;
   padding: 10px 16px;
   border-radius: var(--radius);
@@ -562,6 +654,8 @@ select {
   /* Disc diameter; TouchControls.fit() sets it from the space available. */
   --pad-size: 160px;
   --shoulder-height: 36px;
+  /* Start above Select: two pills and a gap. */
+  --system-height: 64px;
 }
 
 .touch-left,
@@ -636,38 +730,45 @@ select {
   padding-top: 6px;
 }
 
-/* GBA: discs beside the screen, Select/Start underneath. */
+/* GBA: the console's layout. No toolbar; discs beside the screen; L and R span
+   their column; Start above Select under the D-pad. Both columns share the same
+   three rows so L/R and the discs line up. */
 .player.touch-on[data-layout="gba"] {
   grid-template-columns: auto 1fr auto;
-  grid-template-rows: auto 1fr auto;
-  grid-template-areas:
-    "toolbar toolbar toolbar"
-    "left screen right"
-    "system system system";
+  grid-template-rows: 1fr;
+  grid-template-areas: "left screen right";
 }
 
 .player.touch-on[data-layout="gba"] .touch {
   display: contents;
 }
 
+.player.touch-on[data-layout="gba"] .touch-left,
+.player.touch-on[data-layout="gba"] .touch-right {
+  grid-template-rows: var(--shoulder-height) var(--pad-size) var(--system-height);
+  align-content: center;
+  background: var(--bg);
+}
+
 .player.touch-on[data-layout="gba"] .touch-left {
   grid-area: left;
-  align-content: center;
   padding: 8px 10px 8px calc(12px + env(safe-area-inset-left));
-  background: var(--bg);
 }
 
 .player.touch-on[data-layout="gba"] .touch-right {
   grid-area: right;
-  align-content: center;
   padding: 8px calc(12px + env(safe-area-inset-right)) 8px 10px;
-  background: var(--bg);
+}
+
+.player.touch-on[data-layout="gba"] .tbtn-shoulder {
+  width: var(--pad-size);
 }
 
 .player.touch-on[data-layout="gba"] .touch-system {
-  grid-area: system;
-  padding: 8px 0 calc(10px + env(safe-area-inset-bottom));
-  background: var(--bg);
+  flex-direction: column-reverse; /* Start on top, Select below */
+  gap: 8px;
+  justify-self: start;
+  padding-left: calc(var(--pad-size) * 0.08);
 }
 
 /* Buttons */
