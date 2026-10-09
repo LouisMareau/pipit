@@ -312,15 +312,17 @@ for (const [name, width, height] of [
     const widest = Math.max(...Array.from(document.querySelectorAll('.player *')).map((e) => e.getBoundingClientRect().right));
     const [l, r] = Array.from(document.querySelectorAll('.tbtn-shoulder')).map((e) => Math.round(e.getBoundingClientRect().top));
     const centre = (sel) => { const b = document.querySelector(sel).getBoundingClientRect(); return (b.top + b.bottom) / 2; };
-    const a = document.querySelector('.tbtn-a').getBoundingClientRect();
-    const bb = document.querySelector('.tbtn-b').getBoundingClientRect();
-    const abCentre = (Math.min(a.top, bb.top) + Math.max(a.bottom, bb.bottom)) / 2;
+    const dpad = document.querySelector('.dpad').getBoundingClientRect();
+    const touchBox = touch.getBoundingClientRect();
     return {
       layout: player.dataset.layout,
       touchShown: getComputedStyle(touch).display !== 'none',
       overflow: Math.round(Math.max(document.documentElement.scrollWidth, widest) - window.innerWidth),
       shoulderMisalignment: Math.abs(l - r),
-      groupMisalignment: Math.round(Math.abs(centre('.dpad') - abCentre)),
+      groupMisalignment: Math.round(Math.abs(centre('.dpad') - centre('.abpad'))),
+      padSize: Math.round(dpad.width),
+      // How much of the control area's height the shoulder + disc column uses (GBA SP).
+      fill: touchBox.height ? Math.round(((dpad.bottom - l) / touchBox.height) * 100) : null,
       toolbarIcons: document.querySelectorAll('.toolbar svg').length,
     };
   })()`);

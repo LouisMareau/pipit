@@ -19,3 +19,12 @@ export type IconName = keyof typeof PATHS;
 export function icon(name: IconName, size = 20): string {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" fill="currentColor">${PATHS[name]}</svg>`;
 }
+
+/** A chevron pointing up, down, left or right (for the touch D-pad). */
+export function chevron(direction: "up" | "down" | "left" | "right", size = 18): string {
+  const rotate = { up: 90, down: -90, left: 0, right: 180 }[direction];
+  return (
+    `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" style="transform: rotate(${rotate}deg)">` +
+    '<path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  );
+}

@@ -426,5 +426,7 @@ export class App {
     this.player.dataset["layout"] = layout;
     this.player.classList.toggle("touch-on", coarse || this.settings.alwaysShowTouch);
     this.screen.fit();
+    // Measure after the layout has applied.
+    requestAnimationFrame(() => this.touch.fit(layout, this.player));
   }
 }

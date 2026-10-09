@@ -1,11 +1,14 @@
-// On-screen controls for phones and tablets. Pointer events handle multi-touch;
-// the D-pad resolves eight directions from the touch position so diagonals work.
+// On-screen controls for phones and tablets, in the style of a round D-pad disc
+// and a round A/B disc. Pointer events handle multi-touch; the D-pad disc resolves
+// eight directions from the touch position so diagonals work anywhere on it.
 //
-// The DOM is grouped as a left side (L above the D-pad), a right side (R above
-// A/B) and a middle row (Select, Start). CSS arranges the groups either beside
-// the screen (GBA layout) or below it (GBA SP layout).
+// The DOM is grouped as a left side (L above the D-pad disc), a right side (R
+// above the A/B disc) and a Select/Start row. CSS arranges the groups either
+// beside the screen (GBA layout) or below it (GBA SP layout); `fit` sizes the
+// discs to fill the space the layout gives them.
 
 import { Key } from "../types";
+import { chevron } from "./icons";
 
 export class TouchControls {
   readonly element: HTMLDivElement;
@@ -20,19 +23,24 @@ export class TouchControls {
     this.element.innerHTML = `
       <div class="touch-left">
         <button class="tbtn tbtn-shoulder" data-key="${Key.L}">L</button>
-        <div class="dpad" data-dpad>
-          <span class="dpad-arm dpad-up"></span>
-          <span class="dpad-arm dpad-down"></span>
-          <span class="dpad-arm dpad-left"></span>
-          <span class="dpad-arm dpad-right"></span>
-          <span class="dpad-center"></span>
+        <div class="pad dpad" data-dpad>
+          <span class="dpad-btn dpad-up">${chevron("up")}</span>
+          <span class="dpad-btn dpad-down">${chevron("down")}</span>
+          <span class="dpad-btn dpad-left">${chevron("left")}</span>
+          <span class="dpad-btn dpad-right">${chevron("right")}</span>
+          <span class="pad-dot pad-dot-nw"></span>
+          <span class="pad-dot pad-dot-ne"></span>
+          <span class="pad-dot pad-dot-sw"></span>
+          <span class="pad-dot pad-dot-se"></span>
         </div>
       </div>
       <div class="touch-right">
         <button class="tbtn tbtn-shoulder" data-key="${Key.R}">R</button>
-        <div class="touch-ab">
+        <div class="pad abpad">
           <button class="tbtn tbtn-b" data-key="${Key.B}">B</button>
           <button class="tbtn tbtn-a" data-key="${Key.A}">A</button>
+          <span class="pad-dot pad-dot-nw"></span>
+          <span class="pad-dot pad-dot-se"></span>
         </div>
       </div>
       <div class="touch-system">
@@ -69,7 +77,7 @@ export class TouchControls {
       const x = (e.clientX - rect.left) / rect.width - 0.5;
       const y = (e.clientY - rect.top) / rect.height - 0.5;
       let keys = 0;
-      const dead = 0.12;
+      const dead = 0.1;
       if (Math.hypot(x, y) > dead) {
         const angle = Math.atan2(y, x); // -π..π, 0 = right
         const sector = Math.round(angle / (Math.PI / 4)); // -4..4, 8 directions
@@ -111,6 +119,28 @@ export class TouchControls {
     dpad.addEventListener("pointerup", end);
     dpad.addEventListener("pointercancel", end);
     dpad.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+
+  /**
+   * Sizes the discs to the space the layout gives them: in the GBA SP layout the
+   * bottom half of the player, in the GBA layout the columns beside the screen.
+   */
+  fit(layout: "gba" | "gbasp", player: HTMLElement) {
+    const styles = getComputedStyle(this.element);
+    const shoulderRow = parseFloat(styles.getPropertyValue("--shoulder-height")) || 36;
+    const gap = 12;
+    let size: number;
+    if (layout === "gbasp") {
+      // Rows: shoulders, discs, Select/Start; columns: two halves with 8px sides.
+      const { clientWidth: w, clientHeight: h } = this.element;
+      const systemRow = 28 + 6;
+      const padding = 8 + 14;
+      size = Math.min(h - shoulderRow - gap - systemRow - padding - 2 * gap, (w - 16) / 2 - 6);
+    } else {
+      const left = this.element.querySelector<HTMLElement>(".touch-left")!;
+      size = Math.min(left.clientHeight - shoulderRow - gap - 16, player.clientWidth * 0.26);
+    }
+    this.element.style.setProperty("--pad-size", `${Math.max(120, Math.floor(size))}px`);
   }
 
   private emit() {
