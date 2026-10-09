@@ -780,24 +780,26 @@ select {
   right: 4%;
 }
 
-/* A/B: A upper-right, B lower-left, as on the console. */
+/* A/B: A upper-right, B lower-left, as on the console. Each button's centre
+   sits 27.7 % of the disc from its centre with a 20 % radius, so both stay
+   inside the rim. */
 .tbtn-a,
 .tbtn-b {
   position: absolute;
-  width: 42%;
-  height: 42%;
+  width: 40%;
+  height: 40%;
   border-radius: 50%;
   font-size: calc(var(--pad-size) * 0.14);
 }
 
 .tbtn-a {
-  right: 6%;
-  top: 10%;
+  right: 9%;
+  top: 12%;
 }
 
 .tbtn-b {
-  left: 6%;
-  bottom: 10%;
+  left: 9%;
+  bottom: 12%;
 }
 
 .abpad .pad-dot-nw {
