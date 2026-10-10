@@ -258,7 +258,16 @@ dependencies = [
  "anyhow",
  "clap",
  "pipit-gba",
+ "pipit-gbc",
  "png",
+]
+
+[[package]]
+name = "pipit-common"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "serde",
 ]
 
 [[package]]
@@ -266,6 +275,16 @@ name = "pipit-gba"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "pipit-common",
+ "serde",
+]
+
+[[package]]
+name = "pipit-gbc"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "pipit-common",
  "serde",
 ]
 
@@ -275,6 +294,7 @@ version = "0.1.0"
 dependencies = [
  "js-sys",
  "pipit-gba",
+ "pipit-gbc",
  "wasm-bindgen",
 ]
 
