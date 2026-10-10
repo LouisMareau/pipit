@@ -5,12 +5,12 @@ import { takeScreenshot } from "../features/screenshots";
 import { AudioOutput } from "../platform/audio";
 import { EmulatorClient } from "../platform/emulator-client";
 import { Input, keyLabel } from "../platform/input";
-import type { Pending, Role, SessionStart, Transport } from "../platform/netplay";
-import { connect, generateCode, hashRom, LinkSession } from "../platform/netplay";
+import type { Pending, Role, SessionStart } from "../platform/netplay";
+import { connect, generateCode, hashRom, LinkSession, listen } from "../platform/netplay";
 import { FramePacer } from "../platform/pacer";
 import * as storage from "../platform/storage";
 import type { ControllerMapping, ResolvedTouchLayout, RomEntry, Settings, TouchLayout } from "../types";
-import { DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key, STATE_SLOTS } from "../types";
+import { DEFAULT_CONNECTION, DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key, STATE_SLOTS } from "../types";
 import { ControllerSettings } from "./controller-settings";
 import { ControllerToggle } from "./controller-toggle";
 import { icon } from "./icons";
@@ -69,7 +69,7 @@ export class App {
   /** Playing together (see platform/netplay.ts); null when playing alone. */
   private session: LinkSession | null = null;
   /** A connection being made for a session (hosting or joining). */
-  private pendingLink: Pending<Transport> | null = null;
+  private pendingLink: { cancel(): void } | null = null;
   /** Keys the player holds now; on a link they reach the game a few frames later. */
   private heldKeys = 0;
   private stalledTicks = 0;
@@ -85,6 +85,7 @@ export class App {
       ...settings,
       keyboardMapping: { ...DEFAULT_KEYBOARD, ...settings.keyboardMapping },
       touchLayouts: settings.touchLayouts ?? {},
+      connection: { ...DEFAULT_CONNECTION, ...settings.connection },
     };
     this.emulator = new EmulatorClient();
     this.player = document.createElement("div");
@@ -422,8 +423,13 @@ export class App {
   private wireLink() {
     this.linkDialog.onHost = () => void this.startSession("host", generateCode());
     this.linkDialog.onJoin = (code) => void this.startSession("guest", code);
+    this.linkDialog.onStart = () => this.session?.start();
+    this.linkDialog.onSettings = (connection) => {
+      this.settings = { ...this.settings, connection };
+      void storage.saveSettings(this.settings);
+    };
     this.linkDialog.onCancel = () => {
-      // Cancelling while waiting for a partner drops the session.
+      // Cancelling before the game started drops the session.
       this.pendingLink?.cancel();
       this.pendingLink = null;
       if (this.session && !this.player.classList.contains("linked")) {
@@ -438,7 +444,7 @@ export class App {
   private openLinkDialog() {
     if (!this.current || this.session) return;
     this.pauseForDialog(true);
-    this.linkDialog.open();
+    this.linkDialog.open(this.settings.connection);
   }
 
   private async startSession(role: Role, code: string) {
@@ -450,27 +456,52 @@ export class App {
     this.flushSave();
     const [rom, save] = await Promise.all([storage.getRomData(entry.id), storage.getSave(entry.id)]);
     if (!rom) return;
+    const romHash = await hashRom(rom);
     const local = new URLSearchParams(location.search).get("link") === "local";
-    const pending = connect(role, code, local, () => this.linkDialog.setStatus("Waiting for a partner…"));
-    this.pendingLink = pending;
-    let transport: Transport;
-    try {
-      transport = await pending.transport;
-    } catch (error) {
-      if (this.pendingLink === pending) this.linkFailed(error instanceof Error ? error.message : String(error));
-      return;
+    let session: LinkSession;
+    if (role === "host") {
+      const listener = await this.settle(listen(code, local, this.settings.connection), entry);
+      if (!listener) return;
+      session = LinkSession.host(listener, romHash, save);
+    } else {
+      const transport = await this.settle(connect(code, local, this.settings.connection), entry);
+      if (!transport) return;
+      session = LinkSession.join(transport, romHash, save);
     }
-    if (this.pendingLink !== pending || this.current !== entry || this.session) {
-      transport.close();
-      return;
-    }
-    this.pendingLink = null;
-    // Two tabs answer each other within a frame; the internet needs more slack.
-    const session = new LinkSession(transport, role, await hashRom(rom), save, local ? 2 : 4);
     this.session = session;
     session.onStatus = (text) => this.linkDialog.setStatus(text);
+    session.onLobby = (players) => this.linkDialog.setPlayers(players);
+    session.onPing = (ms) => this.showPing(ms);
     session.onStart = (start) => this.startLinkedGame(rom, start);
     session.onEnd = (reason) => this.endSession(session, reason);
+    if (role === "host") this.linkDialog.setPlayers(1);
+  }
+
+  /** Waits for a connection step; null when it failed (the dialog says why) or was overtaken. */
+  private async settle<T extends { close(): void }>(pending: Pending<T>, entry: RomEntry): Promise<T | null> {
+    this.pendingLink = pending;
+    let ready: T;
+    try {
+      ready = await pending.ready;
+    } catch (error) {
+      if (this.pendingLink === pending) this.linkFailed(error instanceof Error ? error.message : String(error));
+      return null;
+    }
+    if (this.pendingLink !== pending || this.current !== entry || this.session) {
+      ready.close();
+      return null;
+    }
+    this.pendingLink = null;
+    return ready;
+  }
+
+  private sessionPlayers = 0;
+
+  private showPing(ms: number) {
+    if (!this.session) return;
+    const badge = this.player.querySelector(".link-badge")!;
+    badge.textContent = this.sessionPlayers ? `Linked · ${this.sessionPlayers} players · ${Math.round(ms)} ms` : "Linked";
+    if (!this.player.classList.contains("linked")) this.linkDialog.setStatus(`Connected, ${Math.round(ms)} ms round trip`);
   }
 
   /** Both saves are in hand: restart the game as two linked consoles. */
@@ -488,7 +519,9 @@ export class App {
     this.stalledTicks = 0;
     // The worker reports `loaded`, which starts the display loop.
     this.emulator.load(rom, null, null, start.link, start.epoch);
-    this.toast(`Linked: you are player ${start.link.local + 1}`, { brief: true });
+    this.sessionPlayers = start.link.players;
+    this.player.querySelector(".link-badge")!.textContent = `Linked · ${start.link.players} players`;
+    this.toast(`Linked: ${start.link.players} players, you are player ${start.link.local + 1}; keys land ${start.delay} frames later`);
   }
 
   private endSession(session: LinkSession, reason: string) {
@@ -503,6 +536,7 @@ export class App {
     } else {
       this.linkDialog.setBusy(false);
       this.linkDialog.showCode(null);
+      this.linkDialog.setPlayers(0);
       this.linkDialog.setStatus(reason);
     }
   }
@@ -527,6 +561,7 @@ export class App {
   private clearLinkUi() {
     this.pendingLink?.cancel();
     this.pendingLink = null;
+    this.sessionPlayers = 0;
     this.linkDialog.close();
     this.player.classList.remove("linked", "waiting");
     this.player.querySelector('[data-action="link"]')!.classList.remove("hidden");

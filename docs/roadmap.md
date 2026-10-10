@@ -35,7 +35,8 @@ Checked items are done and covered by tests.
 - [x] Remappable keyboard controls (⋯ menu → Change key bindings; includes fast-forward and pause)
 - [x] Colour correction: GBA LCD look (gba-color transform, precomputed 15-bit table)
 - [x] Deployed online (GitHub Pages, on every push to `main`)
-- [x] Play together online: host a game, join with a six-letter code; both consoles run on both machines in lockstep over a WebRTC data channel (`platform/netplay.ts`; an Emerald trade between two browser windows is `scripts/link-trade-web.mjs`)
+- [x] Play together online: host a game, join with a six-letter code, two to four players; every console runs on every machine in lockstep over WebRTC data channels, the host relays keys and picks the input delay from the measured ping (`platform/netplay.ts`; an Emerald trade between two browser windows is `scripts/link-trade-web.mjs`)
+- [x] Self-hosted introduction server and relay: connection settings in the dialog, `server/` and [hosting-online-play.md](hosting-online-play.md)
 
 ## Desktop
 
@@ -46,4 +47,4 @@ Checked items are done and covered by tests.
 ## Later
 
 - [ ] GBC core — the library already has a hidden GBC tab waiting for it
-- [ ] Playing together: input delay measured from the ping instead of fixed, a self-hosted introduction server and TURN relay for strict NATs, three and four players
+- [ ] Playing together: adjust the delay while playing, rollback instead of waiting, watch a partner's screen

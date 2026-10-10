@@ -1,0 +1,11 @@
+# coturn for Pipit's online play (docs/hosting-online-play.md). Copy to
+# turnserver.conf and fill in the four values.
+listening-port=3478
+fingerprint
+lt-cred-mech
+realm=your.domain
+user=choose-a-user:choose-a-password
+# The machine's public address, needed on cloud hosts whose interface has a private one.
+external-ip=203.0.113.10
+no-tls
+no-dtls

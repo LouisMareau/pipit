@@ -182,7 +182,23 @@ export interface Settings {
   /** Button mappings, keyed by controller id. */
   controllerMappings: Record<string, ControllerMapping>;
   keyboardMapping: KeyboardMapping;
+  /** Playing together: where players find each other, and an optional relay. */
+  connection: ConnectionSettings;
 }
+
+/**
+ * `server`: a PeerJS introduction server as a URL (empty = the public one).
+ * `relayUrl` and its credentials: a TURN relay for players behind strict NATs
+ * (empty = none; the hosting guide explains running one).
+ */
+export interface ConnectionSettings {
+  server: string;
+  relayUrl: string;
+  relayUsername: string;
+  relayCredential: string;
+}
+
+export const DEFAULT_CONNECTION: ConnectionSettings = { server: "", relayUrl: "", relayUsername: "", relayCredential: "" };
 
 export const DEFAULT_SETTINGS: Settings = {
   volume: 0.8,
@@ -194,6 +210,7 @@ export const DEFAULT_SETTINGS: Settings = {
   colorStrength: 100,
   controllerMappings: {},
   keyboardMapping: DEFAULT_KEYBOARD,
+  connection: DEFAULT_CONNECTION,
 };
 
 /** Number of save-state slots offered in the UI. */

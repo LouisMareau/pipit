@@ -71,7 +71,9 @@ await sleep(1500);
 await play(guest, keysB);
 step("guest playing");
 await guest.evaluate(`document.querySelector('.link-input').value = ${JSON.stringify(code)}; document.querySelector('[data-action=join-form]').requestSubmit(); true`);
-console.log(`joined with code ${code}; playing ${FRAMES} frames…`);
+await sleep(1500);
+await host.evaluate("document.querySelector('[data-action=start]').click(); true");
+console.log(`joined with code ${code}, started; playing ${FRAMES} frames…`);
 
 const frameOf = (page) => page.evaluate("Number(document.querySelector('.player').dataset.linkFrame ?? 0)");
 const linked = (page) => page.evaluate("document.querySelector('.player').classList.contains('linked')");

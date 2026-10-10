@@ -226,8 +226,9 @@ console.log(`save state: "${savedToast}" / "${loadedToast}"; toast animation "${
 // for a few seconds (with keys pressed on one side) proves the inputs and the
 // emulation agree. When the guest leaves, the host is told and returns to the library.
 const guest = await newWindow(url);
+const guest2 = await newWindow(url);
 await sleep(1500);
-await guest.evaluate("document.querySelector('.rom-main').click(); true");
+for (const page of [guest, guest2]) await page.evaluate("document.querySelector('.rom-main').click(); true");
 await sleep(1500);
 const openLinkDialog = (page) =>
   page.evaluate("document.querySelector('[data-action=menu]').click(); document.querySelector('.menu [data-action=link]').click(); true");
@@ -235,36 +236,46 @@ await openLinkDialog({ evaluate });
 await evaluate("document.querySelector('[data-action=host]').click(); true");
 await sleep(400);
 const code = await evaluate("document.querySelector('.link-code').textContent");
-await openLinkDialog(guest);
-await guest.evaluate(
-  `document.querySelector('.link-input').value = ${JSON.stringify(code)}; document.querySelector('[data-action=join-form]').requestSubmit(); true`,
+for (const page of [guest, guest2]) {
+  await openLinkDialog(page);
+  await page.evaluate(
+    `document.querySelector('.link-input').value = ${JSON.stringify(code)}; document.querySelector('[data-action=join-form]').requestSubmit(); true`,
+  );
+}
+await sleep(1500);
+const lobby = await evaluate(
+  "({ players: document.querySelector('.link-players').textContent, canStart: !document.querySelector('[data-action=start]').disabled })",
 );
+console.log(`lobby: ${JSON.stringify(lobby)}`);
+await evaluate("document.querySelector('[data-action=start]').click(); true");
 await sleep(4500);
 const linkState = (page = { evaluate }) =>
   page.evaluate(
-    `(() => { const p = document.querySelector('.player'); return { linked: p.classList.contains('linked'), waiting: p.classList.contains('waiting'),
-      badge: getComputedStyle(document.querySelector('.link-badge')).display !== 'none', fps: document.querySelector('.toolbar-fps').textContent,
+    `(() => { const p = document.querySelector('.player'); const badge = document.querySelector('.link-badge'); return { linked: p.classList.contains('linked'), waiting: p.classList.contains('waiting'),
+      badge: getComputedStyle(badge).display !== 'none', badgeText: badge.textContent, fps: document.querySelector('.toolbar-fps').textContent,
       frame: Number(p.dataset.linkFrame), toast: document.querySelector('.toast')?.textContent ?? '' }; })()`,
   );
 const linkHost = await linkState();
 const linkGuest = await linkState(guest);
+const linkGuest2 = await linkState(guest2);
 await sleep(1000);
-const linkHostLater = await linkState();
-const linkGuestLater = await linkState(guest);
-console.log(`link (code ${code}): host ${JSON.stringify(linkHost)} guest ${JSON.stringify(linkGuest)}`);
-console.log(`link a second later: host frame ${linkHostLater.frame} (${linkHostLater.waiting ? "waiting" : "running"}), guest frame ${linkGuestLater.frame} (${linkGuestLater.waiting ? "waiting" : "running"})`);
-await guest.send("Input.dispatchKeyEvent", { type: "keyDown", code: "ArrowRight", key: "ArrowRight", windowsVirtualKeyCode: 39 });
+const later = await Promise.all([linkState(), linkState(guest), linkState(guest2)]);
+console.log(`link (code ${code}): host ${JSON.stringify(linkHost)} guest ${JSON.stringify(linkGuest)} guest2 ${JSON.stringify(linkGuest2)}`);
+console.log(`link a second later: frames ${later.map((s) => `${s.frame} (${s.waiting ? "waiting" : "running"})`).join(", ")}`);
+await guest2.send("Input.dispatchKeyEvent", { type: "keyDown", code: "ArrowRight", key: "ArrowRight", windowsVirtualKeyCode: 39 });
 await sleep(600);
-await guest.send("Input.dispatchKeyEvent", { type: "keyUp", code: "ArrowRight", key: "ArrowRight", windowsVirtualKeyCode: 39 });
+await guest2.send("Input.dispatchKeyEvent", { type: "keyUp", code: "ArrowRight", key: "ArrowRight", windowsVirtualKeyCode: 39 });
 await sleep(2500);
 const linkAfterKeys = await linkState();
+// One guest leaves: the session is over for everyone.
 await guest.evaluate("document.querySelector('[data-action=menu]').click(); document.querySelector('.menu [data-action=leave-link]').click(); true");
 await sleep(800);
-const hostAfterLeave = await evaluate(
-  "({ library: !document.querySelector('.library').classList.contains('hidden'), toast: document.querySelector('.toast')?.textContent ?? '' })",
-);
-console.log(`link after keys: ${JSON.stringify(linkAfterKeys)}; host after the guest left: ${JSON.stringify(hostAfterLeave)}`);
+const afterLeave = "({ library: !document.querySelector('.library').classList.contains('hidden'), toast: document.querySelector('.toast')?.textContent ?? '' })";
+const hostAfterLeave = await evaluate(afterLeave);
+const guest2AfterLeave = await guest2.evaluate(afterLeave);
+console.log(`link after keys: ${JSON.stringify(linkAfterKeys)}; after a guest left: host ${JSON.stringify(hostAfterLeave)}, other guest ${JSON.stringify(guest2AfterLeave)}`);
 await guest.closeWindow();
+await guest2.closeWindow();
 await evaluate("document.querySelector('.rom-main').click(); true");
 await sleep(2500);
 
@@ -495,15 +506,20 @@ if (
   !toastGone ||
   !landingOk(landing) ||
   !landingOk(landingPhone) ||
+  !lobby.canStart ||
   !linkHost.linked ||
   !linkGuest.linked ||
+  !linkGuest2.linked ||
   linkHost.waiting ||
   linkGuest.waiting ||
+  linkGuest2.waiting ||
   !linkHost.badge ||
+  !/3 players/.test(linkHost.badgeText) ||
   /Session over/.test(linkHost.toast) ||
   !linkAfterKeys.linked ||
   !hostAfterLeave.library ||
-  !/partner left/.test(hostAfterLeave.toast)
+  !/player left/.test(hostAfterLeave.toast) ||
+  !guest2AfterLeave.library
 ) {
   console.error("SMOKE TEST FAILED");
   process.exit(1);

@@ -1,0 +1,15 @@
+# An introduction server and a relay for Pipit's online play; see
+# docs/hosting-online-play.md. Put the introduction server behind TLS.
+services:
+  introduction:
+    image: peerjs/peerjs-server
+    command: ["--port", "9000", "--path", "/pipit"]
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+  relay:
+    image: coturn/coturn
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    restart: unless-stopped

@@ -71,10 +71,13 @@ CPU's cycle count is accurate without ticking components each cycle.
   network: both players' consoles run on both machines, joined by the core's
   in-process link, and only button states cross the wire. Emulation is
   deterministic, so both machines compute the same two games and each shows its
-  own console; keys are applied a few frames late to hide latency, and the two
-  compare state digests every second to catch drift. Joining sends the guest's
-  save and ROM digest, the host answers with its save and the cartridge clock to
-  start from. The connection is a WebRTC data channel introduced by a public
-  PeerJS server (the host's code is its id); `?link=local` joins two tabs of one
-  browser instead, which is what the smoke test uses.
+  own console; keys are applied a few frames late to hide latency, and everyone
+  compares state digests every second to catch drift. The host is the hub for up
+  to four players: guests connect to it, it relays their keys to one another,
+  pings everyone and picks the delay from the slowest path when the host starts
+  the game. Joining sends the guest's save and ROM digest; the start sends every
+  save, the delay and the cartridge clock. Connections are WebRTC data channels
+  introduced by a PeerJS server (the host's code is its id), the public one or
+  your own (see hosting-online-play.md); `?link=local` joins tabs of one browser
+  instead, which is what the smoke test uses.
 - `desktop/` wraps the same web app with Tauri (installers via `npm run build`).

@@ -65,6 +65,7 @@ other, feeds the key scripts through the app's test hook (`window.pipit.keyScrip
 keys per game frame as above), waits the three minutes the session takes at the
 display rate, and reads both saves back (`window.pipit.save()`) to check the
 parties swapped. The smoke test covers the session mechanics without a ROM that
-uses the cable: two windows stay linked with matching state digests while keys
-are pressed, and the host is told when the guest leaves. It uses `?link=local`
-(two tabs of one browser, no introduction server).
+uses the cable: three windows join one host, the host starts, all stay linked
+with matching state digests while keys are pressed, and when one guest leaves
+everyone is told. It uses `?link=local` (tabs of one browser, no introduction
+server); running it against the plain URL exercises the PeerJS path instead.

@@ -1377,3 +1377,38 @@ body[data-chrome="drawer"] .toast {
 .player.linked.waiting .link-wait {
   display: grid;
 }
+
+.link-lobby {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.link-lobby p {
+  flex: 1;
+  margin: 0;
+}
+
+.link-advanced {
+  margin: 0 0 12px;
+}
+
+.link-advanced summary {
+  cursor: pointer;
+}
+
+.link-advanced .row {
+  margin-top: 8px;
+}
+
+.link-advanced input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 6px 8px;
+  font: inherit;
+}
