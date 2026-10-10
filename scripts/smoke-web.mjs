@@ -253,7 +253,8 @@ const linkState = (page = { evaluate }) =>
   page.evaluate(
     `(() => { const p = document.querySelector('.player'); const badge = document.querySelector('.link-badge'); return { linked: p.classList.contains('linked'), waiting: p.classList.contains('waiting'),
       badge: getComputedStyle(badge).display !== 'none', badgeText: badge.textContent, fps: document.querySelector('.toolbar-fps').textContent,
-      frame: Number(p.dataset.linkFrame), toast: document.querySelector('.toast')?.textContent ?? '' }; })()`,
+      frame: Number(p.dataset.linkFrame), delay: Number(p.dataset.linkDelay), rollbacks: Number(p.dataset.linkRollbacks),
+      toast: document.querySelector('.toast')?.textContent ?? '' }; })()`,
   );
 const linkHost = await linkState();
 const linkGuest = await linkState(guest);
@@ -267,6 +268,14 @@ await sleep(600);
 await guest2.send("Input.dispatchKeyEvent", { type: "keyUp", code: "ArrowRight", key: "ArrowRight", windowsVirtualKeyCode: 39 });
 await sleep(2500);
 const linkAfterKeys = await linkState();
+// Watching: the host switches to player 2's console and back; the session must not notice.
+const watch = (player) => evaluate(`(() => { const s = document.querySelector('[data-view]'); s.value = '${player}'; s.dispatchEvent(new Event('change')); return s.value; })()`);
+await watch(1);
+await sleep(1000);
+const whileWatching = await linkState();
+await watch(0);
+const laggy = /[?&]lag=/.test(url);
+console.log(`watching player 2: frame ${whileWatching.frame} (${whileWatching.linked ? "linked" : "not linked"}); ${laggy ? `lagged run: delay ${linkHost.delay} → ${linkAfterKeys.delay}, rollbacks ${linkAfterKeys.rollbacks}` : "no lag"}`);
 // One guest leaves: the session is over for everyone.
 await guest.evaluate("document.querySelector('[data-action=menu]').click(); document.querySelector('.menu [data-action=leave-link]').click(); true");
 await sleep(800);
@@ -517,6 +526,9 @@ if (
   !/3 players/.test(linkHost.badgeText) ||
   /Session over/.test(linkHost.toast) ||
   !linkAfterKeys.linked ||
+  !whileWatching.linked ||
+  whileWatching.frame <= linkAfterKeys.frame ||
+  (laggy && (linkAfterKeys.delay <= linkHost.delay || linkAfterKeys.rollbacks < 1)) ||
   !hostAfterLeave.library ||
   !/player left/.test(hostAfterLeave.toast) ||
   !guest2AfterLeave.library

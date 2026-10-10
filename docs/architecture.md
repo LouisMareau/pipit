@@ -72,7 +72,13 @@ CPU's cycle count is accurate without ticking components each cycle.
   in-process link, and only button states cross the wire. Emulation is
   deterministic, so both machines compute the same two games and each shows its
   own console; keys are applied a few frames late to hide latency, and everyone
-  compares state digests every second to catch drift. The host is the hub for up
+  compares state digests every second to catch drift. Keys that are late are
+  guessed (each player is assumed to hold what they last sent) for up to eight
+  frames rather than waited for; the worker keeps the state before any such
+  frame, and a wrong guess rolls back to it and re-runs silently with the keys
+  now known (`Link::save_state`/`load_state` capture every console and the
+  cable). The host raises the delay as soon as the pings call for it and lowers
+  it after a calm while. The host is the hub for up
   to four players: guests connect to it, it relays their keys to one another,
   pings everyone and picks the delay from the slowest path when the host starts
   the game. Joining sends the guest's save and ROM digest; the start sends every

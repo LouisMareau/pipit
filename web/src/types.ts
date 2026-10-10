@@ -34,9 +34,20 @@ export type ToWorker =
   | { type: "pause" }
   /**
    * The UI's display loop asks for one emulated frame (see `platform/pacer.ts`).
-   * On a link, `keys` holds every player's keys for that frame.
+   * On a link, `keys` holds every player's keys for that frame; `snapshot` asks
+   * for the state before it to be kept (some keys were guessed) under `frame`.
    */
-  | { type: "frame"; keys?: number[] }
+  | { type: "frame"; keys?: number[]; frame?: number; snapshot?: boolean }
+  /**
+   * A guess was wrong: go back to the state kept under `toFrame` and re-run the
+   * frames from there with `inputs` (one key set per player per frame), keeping
+   * the state before each frame whose `snapshots` flag is set.
+   */
+  | { type: "rollback"; toFrame: number; inputs: number[][]; snapshots: boolean[] }
+  /** Guesses up to this frame proved right: their kept states can go. */
+  | { type: "confirm"; frame: number }
+  /** Show and play another console of the link. */
+  | { type: "view"; player: number }
   | { type: "keys"; keys: number }
   | { type: "fastForward"; enabled: boolean }
   | { type: "colors"; mode: number; strength: number }

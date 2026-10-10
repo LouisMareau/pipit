@@ -146,3 +146,25 @@ fn one_transfer_at_a_time() {
     link.run_frame();
     assert_eq!(link.transfers(), 1, "a start while busy is ignored");
 }
+
+#[test]
+fn a_link_state_restores_every_console_and_the_cable() {
+    let mut link = Link::new(vec![console(), console()]);
+    for node in link.nodes_mut() {
+        enter_multiplay(node);
+    }
+    write(&mut link.nodes_mut()[0], SIOCNT, MULTI | START);
+    let now = link.nodes()[0].bus.scheduler.now();
+    // Mid-transfer: the latched words belong to the cable, not to a console.
+    link.run_until(now + 100);
+    let state = link.save_state();
+    let expected = {
+        let mut copy = Link::new(vec![console(), console()]);
+        copy.load_state(&state).expect("state loads");
+        copy.run_frame();
+        copy.state_hash()
+    };
+    link.run_frame();
+    assert_eq!(link.state_hash(), expected);
+    assert_eq!(link.transfers(), 1);
+}

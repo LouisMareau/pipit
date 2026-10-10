@@ -47,4 +47,4 @@ Checked items are done and covered by tests.
 ## Later
 
 - [ ] GBC core — the library already has a hidden GBC tab waiting for it
-- [ ] Playing together: adjust the delay while playing, rollback instead of waiting, watch a partner's screen
+- [x] Playing together: the host adjusts the delay while playing from the live ping; late keys are guessed from the last seen ones and a wrong guess rolls back and re-runs up to eight frames; any console of the link can be watched (Watch in the player menu)

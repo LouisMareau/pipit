@@ -22,6 +22,9 @@ let fastForwardTimer: ReturnType<typeof setTimeout> | null = null;
 let keys = 0;
 /** Several consoles on a link: keys arrive with each frame request, fast-forward is off. */
 let linked = false;
+/** Rollback: states kept before frames that ran on guessed keys, by frame number. */
+const states = new Map<number, Uint8Array>();
+const MAX_STATES = 16;
 let colorMode = 1;
 let colorStrength = 1;
 let frameCounter = 0;
@@ -53,9 +56,20 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       stopFastForward();
       break;
     case "frame":
-      if (!running || fastForward) break;
+      if (!running || fastForward || !emulator) break;
+      if (msg.snapshot && msg.frame !== undefined) keep(msg.frame);
       if (msg.keys) msg.keys.forEach((k, i) => emulator?.set_player_keys(i, k));
       step();
+      break;
+    case "rollback":
+      rollback(msg.toFrame, msg.inputs, msg.snapshots);
+      break;
+    case "confirm":
+      for (const frame of states.keys()) if (frame <= msg.frame) states.delete(frame);
+      break;
+    case "view":
+      emulator?.set_view(msg.player);
+      postFrame();
       break;
     case "keys":
       keys = msg.keys;
@@ -167,9 +181,40 @@ function step() {
 
   postFrame();
   if (frameCounter % SAVE_CHECK_FRAMES === 0 && emulator.take_save_dirty()) sendSave();
-  if (linked && frameCounter % HASH_FRAMES === 0) {
+  // No digest while some keys are still guesses: it could be corrected later.
+  if (linked && frameCounter % HASH_FRAMES === 0 && states.size === 0) {
     post({ type: "hash", frame: frameCounter, hash: emulator.state_hash() });
   }
+}
+
+/** Keeps the current state under `frame` (the number of frames run so far). */
+function keep(frame: number) {
+  if (!emulator) return;
+  states.set(frame, emulator.save_link_state());
+  while (states.size > MAX_STATES) states.delete(states.keys().next().value!);
+}
+
+/**
+ * Goes back to the state kept under `toFrame` and re-runs the frames from
+ * there, silently, with the given keys; then shows where that leads.
+ */
+function rollback(toFrame: number, inputs: number[][], snapshots: boolean[]) {
+  const state = states.get(toFrame);
+  if (!emulator || !state) {
+    post({ type: "error", message: `Cannot roll back to frame ${toFrame}` });
+    return;
+  }
+  emulator.load_link_state(state);
+  for (const frame of states.keys()) if (frame >= toFrame) states.delete(frame);
+  frameCounter = toFrame;
+  inputs.forEach((row, i) => {
+    if (snapshots[i]) keep(frameCounter);
+    row.forEach((k, player) => emulator?.set_player_keys(player, k));
+    emulator?.run_frame_silent();
+    frameCounter++;
+  });
+  emulator.refresh_frame();
+  postFrame();
 }
 
 function postFrame() {

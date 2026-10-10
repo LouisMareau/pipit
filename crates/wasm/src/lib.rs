@@ -14,6 +14,8 @@ use wasm_bindgen::prelude::*;
 pub struct Emulator {
     link: Link,
     local: usize,
+    /// The console whose picture and sound are shown: the local one, or a partner's.
+    view: usize,
     rgba: Vec<u8>,
     /// Colour correction table, when the LCD look is on.
     color_lut: Option<Vec<[u8; 4]>>,
@@ -34,6 +36,7 @@ impl Emulator {
         Emulator {
             link: Link::new(nodes),
             local,
+            view: local,
             rgba: vec![0; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
             color_lut: None,
         }
@@ -64,7 +67,7 @@ impl Emulator {
     /// Re-converts the current framebuffer to RGBA without running (after a state
     /// load or a colour-mode change).
     pub fn refresh_frame(&mut self) {
-        let framebuffer = self.link.nodes()[self.local].framebuffer();
+        let framebuffer = self.link.nodes()[self.view].framebuffer();
         let (pixels, _) = self.rgba.as_chunks_mut::<4>();
         if let Some(lut) = &self.color_lut {
             for (px, out) in framebuffer.iter().zip(pixels) {
@@ -106,9 +109,46 @@ impl Emulator {
         self.link.nodes_mut()[player].set_keys(Keys(keys));
     }
 
-    /// Takes the audio produced since the last call: interleaved stereo i16 at 32768 Hz.
+    /// Takes the viewed console's audio since the last call (interleaved stereo i16
+    /// at 32768 Hz); the other consoles' is dropped so it does not pile up.
     pub fn drain_audio(&mut self) -> Vec<i16> {
-        self.gba_mut().drain_audio()
+        let view = self.view;
+        let mut out = Vec::new();
+        for (i, node) in self.link.nodes_mut().iter_mut().enumerate() {
+            let samples = node.drain_audio();
+            if i == view {
+                out = samples;
+            }
+        }
+        out
+    }
+
+    /// Shows (and plays) another console of the link.
+    pub fn set_view(&mut self, player: usize) {
+        self.view = player.min(self.players() - 1);
+        self.refresh_frame();
+    }
+
+    /// Runs one frame without converting the picture or keeping the sound: for
+    /// re-simulating after a rollback.
+    pub fn run_frame_silent(&mut self) {
+        if self.players() == 1 {
+            self.gba_mut().run_frame();
+        } else {
+            self.link.run_frame();
+        }
+        for node in self.link.nodes_mut() {
+            node.drain_audio();
+        }
+    }
+
+    /// Serializes every console of the link, to roll back to later.
+    pub fn save_link_state(&self) -> Vec<u8> {
+        self.link.save_state()
+    }
+
+    pub fn load_link_state(&mut self, data: &[u8]) -> Result<(), JsError> {
+        self.link.load_state(data).map_err(|e| JsError::new(&e.to_string()))
     }
 
     pub fn save_data(&self) -> Option<Vec<u8>> {

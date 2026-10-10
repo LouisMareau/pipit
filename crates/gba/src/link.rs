@@ -11,7 +11,16 @@
 //! multiplayer. Play over a network will carry the same words with a delay.
 
 use crate::sio::{Mode, Stop};
+use crate::snapshot::StateError;
 use crate::Gba;
+use serde::{Deserialize, Serialize};
+
+/// Everything a `Link` needs to continue exactly: each console plus the cable.
+#[derive(Serialize, Deserialize)]
+struct LinkState {
+    nodes: Vec<Vec<u8>>,
+    latched: Option<[u16; 4]>,
+}
 
 /// A cable joins at most this many consoles.
 pub const MAX_NODES: usize = 4;
@@ -60,6 +69,28 @@ impl Link {
             bytes.extend_from_slice(&node.state_hash().to_le_bytes());
         }
         crate::fnv1a(&bytes)
+    }
+
+    /// Serializes every console and the cable's own state (for rolling back).
+    pub fn save_state(&self) -> Vec<u8> {
+        let state = LinkState {
+            nodes: self.nodes.iter().map(Gba::save_state).collect(),
+            latched: self.latched,
+        };
+        bincode::serialize(&state).expect("link state serializes")
+    }
+
+    /// Restores a state from `save_state`, made with the same consoles.
+    pub fn load_state(&mut self, data: &[u8]) -> Result<(), StateError> {
+        let state: LinkState = bincode::deserialize(data).map_err(|_| StateError::Corrupt)?;
+        if state.nodes.len() != self.nodes.len() {
+            return Err(StateError::Corrupt);
+        }
+        for (node, bytes) in self.nodes.iter_mut().zip(&state.nodes) {
+            node.load_state(bytes)?;
+        }
+        self.latched = state.latched;
+        Ok(())
     }
 
     /// Transfers completed since the cable was connected.

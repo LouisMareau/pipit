@@ -29,19 +29,32 @@ interface TestHooks {
 }
 
 /** `300=START,330=,600=A+RIGHT`: the keys held from each frame on (names as in `Key`). */
-function parseKeyScript(script: string): Map<number, number> {
-  const out = new Map<number, number>();
-  for (const entry of script.split(",")) {
-    const [frame, names = ""] = entry.split("=");
-    if (!frame?.trim()) continue;
-    let keys = 0;
-    for (const name of names.split("+")) {
-      const key = (Object.keys(Key) as (keyof typeof Key)[]).find((k) => k.toLowerCase() === name.trim().toLowerCase());
-      if (key) keys |= Key[key];
+class ScriptedKeys {
+  private readonly entries: [number, number][] = [];
+
+  constructor(script: string) {
+    for (const entry of script.split(",")) {
+      const [frame, names = ""] = entry.split("=");
+      if (!frame?.trim()) continue;
+      let keys = 0;
+      for (const name of names.split("+")) {
+        const key = (Object.keys(Key) as (keyof typeof Key)[]).find((k) => k.toLowerCase() === name.trim().toLowerCase());
+        if (key) keys |= Key[key];
+      }
+      this.entries.push([Number(frame), keys]);
     }
-    out.set(Number(frame), keys);
+    this.entries.sort((a, b) => a[0] - b[0]);
   }
-  return out;
+
+  /** The keys held at `frame`: the latest entry at or before it. */
+  at(frame: number): number {
+    let keys = 0;
+    for (const [from, value] of this.entries) {
+      if (from > frame) break;
+      keys = value;
+    }
+    return keys;
+  }
 }
 
 export class App {
@@ -75,7 +88,7 @@ export class App {
   private stalledTicks = 0;
   /** Test hooks (see scripts/): scripted keys on a link, and a copy of the save. */
   private hooks: TestHooks = { keyScript: null, save: () => this.copyOfSave() };
-  private keyScript: Map<number, number> | null = null;
+  private keyScript: ScriptedKeys | null = null;
   private saveWaiters: ((data: ArrayBuffer) => void)[] = [];
 
   constructor(root: HTMLElement, settings: Settings) {
@@ -128,6 +141,7 @@ export class App {
         <h4>Link cable</h4>
         <button class="btn" data-action="link">Play together…</button>
         <button class="btn hidden" data-action="leave-link">Leave the session</button>
+        <label class="row link-view hidden"><span>Watch</span><select data-view></select></label>
         <h4>Keyboard</h4>
         <button class="btn" data-action="keyboard">Change key bindings…</button>
         <h4>Battery save</h4>
@@ -403,16 +417,17 @@ export class App {
       this.emulator.requestFrame();
       return;
     }
-    // Scripted keys (a test hook) are given per game frame, which is what the
-    // keys published now will reach.
-    const held = this.keyScript ? (this.keyScript.get(this.session.frame + this.session.delayFrames) ?? this.scriptedKeys) : this.heldKeys;
-    if (this.keyScript) this.scriptedKeys = held;
-    const keys = this.session.tick(held);
-    if (keys) {
+    // Scripted keys (a test hook) are given per game frame; otherwise whatever
+    // is held now goes out for every frame published.
+    const script = this.keyScript;
+    const tick = this.session.tick(script ? (frame) => script.at(frame) : () => this.heldKeys);
+    if (tick) {
       this.stalledTicks = 0;
-      this.emulator.requestFrame(keys);
-      // For diagnostics (the smoke test reads it): how far the session has run.
+      this.emulator.requestFrame(tick.keys, tick.frame, tick.guessed);
+      // For diagnostics (the smoke test reads them): how far the session has run, and how.
       this.player.dataset["linkFrame"] = String(this.session.frame);
+      this.player.dataset["linkDelay"] = String(this.session.delayFrames);
+      this.player.dataset["linkRollbacks"] = String(this.session.rollbacks);
     } else {
       this.stalledTicks++;
     }
@@ -421,6 +436,11 @@ export class App {
   }
 
   private wireLink() {
+    this.player.querySelector<HTMLSelectElement>("[data-view]")!.addEventListener("change", (e) => {
+      const player = Number((e.target as HTMLSelectElement).value);
+      this.emulator.setView(player);
+      this.toast(player === (this.session?.local ?? 0) ? "Back to your screen" : `Watching player ${player + 1}`, { brief: true });
+    });
     this.linkDialog.onHost = () => void this.startSession("host", generateCode());
     this.linkDialog.onJoin = (code) => void this.startSession("guest", code);
     this.linkDialog.onStart = () => this.session?.start();
@@ -474,6 +494,8 @@ export class App {
     session.onPing = (ms) => this.showPing(ms);
     session.onStart = (start) => this.startLinkedGame(rom, start);
     session.onEnd = (reason) => this.endSession(session, reason);
+    session.onRollback = (toFrame, inputs, snapshots) => this.emulator.rollback(toFrame, inputs, snapshots);
+    session.onConfirm = (frame) => this.emulator.confirm(frame);
     if (role === "host") this.linkDialog.setPlayers(1);
   }
 
@@ -500,14 +522,15 @@ export class App {
   private showPing(ms: number) {
     if (!this.session) return;
     const badge = this.player.querySelector(".link-badge")!;
-    badge.textContent = this.sessionPlayers ? `Linked · ${this.sessionPlayers} players · ${Math.round(ms)} ms` : "Linked";
+    badge.textContent = this.sessionPlayers
+      ? `Linked · ${this.sessionPlayers} players · ${Math.round(ms)} ms · delay ${this.session.delayFrames}`
+      : "Linked";
     if (!this.player.classList.contains("linked")) this.linkDialog.setStatus(`Connected, ${Math.round(ms)} ms round trip`);
   }
 
   /** Both saves are in hand: restart the game as two linked consoles. */
   private startLinkedGame(rom: ArrayBuffer, start: SessionStart) {
-    this.keyScript = this.hooks.keyScript ? parseKeyScript(this.hooks.keyScript) : null;
-    this.scriptedKeys = 0;
+    this.keyScript = this.hooks.keyScript ? new ScriptedKeys(this.hooks.keyScript) : null;
     this.linkDialog.close();
     this.dialogPaused = false;
     this.paused = false;
@@ -521,6 +544,18 @@ export class App {
     this.emulator.load(rom, null, null, start.link, start.epoch);
     this.sessionPlayers = start.link.players;
     this.player.querySelector(".link-badge")!.textContent = `Linked · ${start.link.players} players`;
+    // Watching: any console of the link can be shown; keys still go to your own.
+    const view = this.player.querySelector<HTMLSelectElement>("[data-view]")!;
+    view.replaceChildren(
+      ...Array.from({ length: start.link.players }, (_, p) => {
+        const option = document.createElement("option");
+        option.value = String(p);
+        option.textContent = p === start.link.local ? "Your screen" : `Player ${p + 1}`;
+        return option;
+      }),
+    );
+    view.value = String(start.link.local);
+    view.closest(".link-view")!.classList.remove("hidden");
     this.toast(`Linked: ${start.link.players} players, you are player ${start.link.local + 1}; keys land ${start.delay} frames later`);
   }
 
@@ -540,8 +575,6 @@ export class App {
       this.linkDialog.setStatus(reason);
     }
   }
-
-  private scriptedKeys = 0;
 
   /** The save as the game last wrote it (asks the worker for a fresh copy). */
   private copyOfSave(): Promise<ArrayBuffer> {
@@ -566,6 +599,7 @@ export class App {
     this.player.classList.remove("linked", "waiting");
     this.player.querySelector('[data-action="link"]')!.classList.remove("hidden");
     this.player.querySelector('[data-action="leave-link"]')!.classList.add("hidden");
+    this.player.querySelector(".link-view")!.classList.add("hidden");
   }
 
   /** Shows a notice card; a `brief` one (controller events) stays about a second. */

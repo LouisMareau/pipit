@@ -69,3 +69,7 @@ uses the cable: three windows join one host, the host starts, all stay linked
 with matching state digests while keys are pressed, and when one guest leaves
 everyone is told. It uses `?link=local` (tabs of one browser, no introduction
 server); running it against the plain URL exercises the PeerJS path instead.
+With `&lag=0:120` the local channel delays every message by 120 ms after a
+connection's first seven seconds, which makes the host raise the delay and
+forces guessed keys and rollbacks; the test asserts both happened. The trade
+script accepts the same URL, so the Emerald trade can be run with lag too.

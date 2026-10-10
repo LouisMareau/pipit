@@ -76,9 +76,27 @@ export class EmulatorClient {
     this.send({ type: "fastForward", enabled });
   }
 
-  /** Asks the worker to emulate one frame (called from the display loop); on a link, with every player's keys. */
-  requestFrame(keys?: number[]) {
-    this.send({ type: "frame", keys });
+  /**
+   * Asks the worker to emulate one frame (called from the display loop); on a
+   * link, with every player's keys, and whether to keep the state before it.
+   */
+  requestFrame(keys?: number[], frame?: number, snapshot?: boolean) {
+    this.send({ type: "frame", keys, frame, snapshot });
+  }
+
+  /** Undoes guessed frames: back to `toFrame`, then forward again with `inputs`. */
+  rollback(toFrame: number, inputs: number[][], snapshots: boolean[]) {
+    this.send({ type: "rollback", toFrame, inputs, snapshots });
+  }
+
+  /** Frames up to this one are final; their kept states can go. */
+  confirm(frame: number) {
+    this.send({ type: "confirm", frame });
+  }
+
+  /** Shows and plays another console of the link. */
+  setView(player: number) {
+    this.send({ type: "view", player });
   }
 
   /** 0 = raw colours, 1 = GBA LCD look at `strength` 0-1. */

@@ -28,7 +28,19 @@ export type LinkMessage =
   | { type: "hash"; frame: number; hash: number }
   | { type: "ping"; t: number }
   | { type: "pong"; t: number }
+  | { type: "delay"; value: number }
   | { type: "end"; reason: string };
+
+/** What `LinkSession.tick` hands to the worker: the keys to run frame `frame` with. */
+export interface Tick {
+  frame: number;
+  keys: number[];
+  /** Some keys were guessed from the last seen ones; keep the state before this frame. */
+  guessed: boolean;
+}
+
+/** How far ahead of the last settled frame guessing may go before waiting instead. */
+const MAX_GUESSED_FRAMES = 8;
 
 export interface Transport {
   send(message: LinkMessage): void;
@@ -203,13 +215,30 @@ class LocalTransport implements Transport {
     channel.addEventListener("message", this.listener);
   }
 
+  private readonly createdAt = performance.now();
+
   send(message: LinkMessage) {
-    this.channel.postMessage({ from: this.me, to: this.peer, body: message } satisfies Envelope);
+    const envelope = { from: this.me, to: this.peer, body: message } satisfies Envelope;
+    const lag = localLag(this.createdAt);
+    if (lag > 0) setTimeout(() => this.channel.postMessage(envelope), lag * (0.75 + Math.random() * 0.5));
+    else this.channel.postMessage(envelope);
   }
 
   close() {
     this.channel.removeEventListener("message", this.listener);
   }
+}
+
+/**
+ * Test hook: `?lag=A:B` delays every local message by A ms for a connection's
+ * first seven seconds, then by B ms (with some jitter), to exercise guessing,
+ * rollback and the delay adjustment without a network.
+ */
+function localLag(createdAt: number): number {
+  const spec = new URLSearchParams(location.search).get("lag");
+  if (!spec) return 0;
+  const [first, later = first] = spec.split(":").map(Number);
+  return performance.now() - createdAt < 7000 ? first! : later!;
 }
 
 const localChannel = (code: string) => new BroadcastChannel(`pipit-link:${code}`);
@@ -289,8 +318,24 @@ export class LinkSession {
   private guests: Guest[] = [];
   /** Guest only. */
   private host: Transport | null = null;
-  /** Every player's keys per frame; a frame runs once no entry is missing. */
-  private keys = new Map<number, (number | undefined)[]>();
+  /** Every player's keys per frame, as far as they are known. */
+  private inputs = new Map<number, (number | undefined)[]>();
+  /** The keys each frame actually ran with (guesses included), until settled. */
+  private applied = new Map<number, number[]>();
+  /** Frames run with guessed keys that have not been confirmed yet. */
+  private guessedFrames = new Set<number>();
+  /** Every frame up to here ran with keys everyone has confirmed. */
+  private settled = -1;
+  /** The last keys seen from each player: the guess for frames not heard about yet. */
+  private lastKnown: number[] = [];
+  private lastPublished = -1;
+  private calmSeconds = 0;
+  /** Times a wrong guess had to be undone. */
+  rollbacks = 0;
+  /** A wrong guess: the worker goes back to `toFrame` and re-runs with `inputs`. */
+  onRollback: (toFrame: number, inputs: number[][], snapshots: boolean[]) => void = () => {};
+  /** Every frame up to this one is final; kept states up to it can go. */
+  onConfirm: (frame: number) => void = () => {};
   private ownHashes = new Map<number, number>();
   private guestHashes = new Map<number, Map<number, number>>();
   private rtts: number[] = [];
@@ -351,10 +396,16 @@ export class LinkSession {
     };
   }
 
-  /** Host: ends the game for everyone still here (`gone` has already left). */
+  /**
+   * Host: ends the game for everyone still here (`gone` has already left).
+   * Closed first: a send to a channel that is already gone reports an error,
+   * which would otherwise end the session again from inside this one.
+   */
   private endAll(reason: string, gone?: Guest) {
-    for (const guest of this.guests) if (guest !== gone) guest.transport.send({ type: "end", reason });
-    this.end(reason);
+    if (this.closed) return;
+    this.closed = true;
+    for (const guest of this.guests) if (guest !== gone) safeSend(guest.transport, { type: "end", reason });
+    this.finish(reason);
   }
 
   private dropGuest(guest: Guest) {
@@ -388,8 +439,8 @@ export class LinkSession {
         this.onPing(Math.max(...this.guests.map((g) => median(g.rtts) ?? 0)));
         break;
       case "input":
-        this.storeKeys(message.frame, message.player, message.keys);
         for (const other of this.guests) if (other !== guest && other.ready) other.transport.send(message);
+        this.receiveInput(message.frame, message.player, message.keys);
         break;
       case "hash":
         if (!this.guestHashes.has(message.frame)) this.guestHashes.set(message.frame, new Map());
@@ -411,8 +462,11 @@ export class LinkSession {
     for (const guest of this.guests) if (guest.ready) guest.transport.send({ type: "lobby", players });
   }
 
+  private pings = 0;
+
   private pingAll() {
     for (const guest of this.guests) guest.transport.send({ type: "ping", t: performance.now() });
+    if (++this.pings % 2 === 0) this.adjustDelay();
   }
 
   /** The delay that covers the slowest path, guests' keys being relayed through the host. */
@@ -466,7 +520,10 @@ export class LinkSession {
         this.end(`The host said no: ${message.reason}`);
         break;
       case "input":
-        this.storeKeys(message.frame, message.player, message.keys);
+        this.receiveInput(message.frame, message.player, message.keys);
+        break;
+      case "delay":
+        this.delay = message.value;
         break;
       case "ping":
         this.host?.send({ type: "pong", t: message.t });
@@ -491,44 +548,120 @@ export class LinkSession {
     this.helloTimer = null;
     this.started = true;
     // Nobody can have pressed anything before the first `delay` frames.
-    for (let f = 0; f < this.delay; f++) this.keys.set(f, new Array<number>(this.players).fill(0));
+    for (let f = 0; f < this.delay; f++) this.inputs.set(f, new Array<number>(this.players).fill(0));
+    this.lastPublished = this.delay - 1;
+    this.settled = this.delay - 1;
+    this.lastKnown = new Array<number>(this.players).fill(0);
     this.onStatus("Connected");
     this.onStart(start);
   }
 
   private storeKeys(frame: number, player: number, keys: number) {
-    let row = this.keys.get(frame);
+    let row = this.inputs.get(frame);
     if (!row) {
       row = new Array<number | undefined>(this.players).fill(undefined);
-      this.keys.set(frame, row);
+      this.inputs.set(frame, row);
     }
     row[player] = keys;
   }
 
+  /** A player's keys for a frame arrived: keep them, and undo any wrong guess. */
+  private receiveInput(frame: number, player: number, keys: number) {
+    this.storeKeys(frame, player, keys);
+    this.lastKnown[player] = keys;
+    const used = this.applied.get(frame);
+    if (frame < this.frame && used && used[player] !== keys) this.rollbackTo(frame);
+    this.settle();
+  }
+
   private sendAll(message: LinkMessage) {
-    if (this.role === "host") for (const guest of this.guests) guest.transport.send(message);
-    else this.host?.send(message);
+    if (this.role === "host") for (const guest of this.guests) safeSend(guest.transport, message);
+    else if (this.host) safeSend(this.host, message);
+  }
+
+  /** The keys a frame will run with: what is known, and the last seen keys for the rest. */
+  private resolve(frame: number): { keys: number[]; guessed: boolean } {
+    const row = this.inputs.get(frame) ?? [];
+    let guessed = false;
+    const keys = Array.from({ length: this.players }, (_, p) => {
+      const known = row[p];
+      if (known !== undefined) return known;
+      guessed = true;
+      return this.lastKnown[p] ?? 0;
+    });
+    return { keys, guessed };
   }
 
   /**
-   * Called once per display frame with the keys the player holds. Returns every
-   * player's keys for the next frame, or null while someone's are still on their
-   * way. Publishes the local keys for `delay` frames ahead either way, so players
-   * waiting on each other never deadlock.
+   * Called once per display frame. `keysFor` gives the local keys for a frame
+   * about to be published (the frame `delay` ahead, or several when the delay
+   * just grew). Returns the next frame to run, with any late keys guessed from
+   * the last seen ones, or null when the guesses would reach too far ahead.
+   * Publishing happens either way, so players waiting on each other never deadlock.
    */
-  tick(heldKeys: number): number[] | null {
+  tick(keysFor: (frame: number) => number): Tick | null {
     if (!this.started || this.closed) return null;
     const f = this.frame;
-    const ahead = f + this.delay;
-    if (this.keys.get(ahead)?.[this.local] === undefined) {
-      this.storeKeys(ahead, this.local, heldKeys);
-      this.sendAll({ type: "input", player: this.local, frame: ahead, keys: heldKeys });
+    for (let ahead = this.lastPublished + 1; ahead <= f + this.delay; ahead++) {
+      const keys = keysFor(ahead);
+      this.storeKeys(ahead, this.local, keys);
+      this.sendAll({ type: "input", player: this.local, frame: ahead, keys });
+      this.lastPublished = ahead;
     }
-    const row = this.keys.get(f);
-    if (!row || row.some((k) => k === undefined)) return null;
-    this.keys.delete(f);
+    const { keys, guessed } = this.resolve(f);
+    if (guessed && f - this.settled > MAX_GUESSED_FRAMES) return null;
+    this.applied.set(f, keys);
+    if (guessed) this.guessedFrames.add(f);
     this.frame = f + 1;
-    return row as number[];
+    this.settle();
+    return { frame: f, keys, guessed };
+  }
+
+  /** Re-runs from `frame` with the keys now known; guesses again for what is still missing. */
+  private rollbackTo(frame: number) {
+    const rows: number[][] = [];
+    const snapshots: boolean[] = [];
+    for (let g = frame; g < this.frame; g++) {
+      const { keys, guessed } = this.resolve(g);
+      this.applied.set(g, keys);
+      if (guessed) this.guessedFrames.add(g);
+      else this.guessedFrames.delete(g);
+      rows.push(keys);
+      snapshots.push(guessed);
+    }
+    this.rollbacks++;
+    this.onRollback(frame, rows, snapshots);
+  }
+
+  /** Advances past every frame whose keys are all known and were run as known. */
+  private settle() {
+    let moved = false;
+    while (this.settled + 1 < this.frame) {
+      const next = this.settled + 1;
+      const row = this.inputs.get(next);
+      if (!row || row.some((k) => k === undefined)) break;
+      this.settled = next;
+      this.guessedFrames.delete(next);
+      this.inputs.delete(next);
+      this.applied.delete(next);
+      moved = true;
+    }
+    if (moved) this.onConfirm(this.settled);
+  }
+
+  /** Host: raises the delay as soon as the pings call for it, lowers it only after a calm while. */
+  private adjustDelay() {
+    if (!this.started || this.guests.length === 0) return;
+    const needed = this.chooseDelay();
+    if (needed > this.delay) this.setDelay(needed);
+    else if (needed < this.delay && ++this.calmSeconds >= 5) this.setDelay(this.delay - 1);
+    else return;
+    this.calmSeconds = 0;
+  }
+
+  private setDelay(value: number) {
+    this.delay = value;
+    this.sendAll({ type: "delay", value });
   }
 
   /** How many frames after being pressed the keys reach the game. */
@@ -536,10 +669,11 @@ export class LinkSession {
     return this.delay;
   }
 
-  /** Whether the next frame is held up by someone's keys. */
+  /** Whether the next frame is held up: someone's keys are missing beyond what can be guessed. */
   get waiting(): boolean {
-    const row = this.keys.get(this.frame);
-    return this.started && !this.closed && (!row || row.some((k) => k === undefined));
+    if (!this.started || this.closed) return false;
+    const { guessed } = this.resolve(this.frame);
+    return guessed && this.frame - this.settled > MAX_GUESSED_FRAMES;
   }
 
   /** The worker's digest after `frame` frames: the host compares everyone's. */
@@ -554,6 +688,9 @@ export class LinkSession {
   }
 
   private checkHashes(frame: number) {
+    // A digest is skipped while keys are guesses, so partners' entries may never pair up.
+    for (const old of this.ownHashes.keys()) if (old < frame - 600) this.ownHashes.delete(old);
+    for (const old of this.guestHashes.keys()) if (old < frame - 600) this.guestHashes.delete(old);
     const mine = this.ownHashes.get(frame);
     const theirs = this.guestHashes.get(frame);
     if (mine === undefined || !theirs || theirs.size < this.guests.length) return;
@@ -569,17 +706,39 @@ export class LinkSession {
 
   leave() {
     if (this.closed) return;
+    this.closed = true;
     this.sendAll({ type: "end", reason: this.role === "host" ? "The host left" : "A player left" });
-    this.end("You left");
+    this.finish("You left");
   }
 
   private end(reason: string) {
     if (this.closed) return;
     this.closed = true;
+    this.finish(reason);
+  }
+
+  private finish(reason: string) {
     if (this.pingTimer !== null) clearInterval(this.pingTimer);
     if (this.helloTimer !== null) clearInterval(this.helloTimer);
-    for (const guest of this.guests) guest.transport.close();
-    this.host?.close();
+    for (const guest of this.guests) safeClose(guest.transport);
+    if (this.host) safeClose(this.host);
     this.onEnd(reason);
+  }
+}
+
+/** A channel may already be gone; that is not a reason to fail here. */
+function safeSend(transport: Transport, message: LinkMessage) {
+  try {
+    transport.send(message);
+  } catch {
+    // Closed under us: nothing to deliver to.
+  }
+}
+
+function safeClose(transport: Transport) {
+  try {
+    transport.close();
+  } catch {
+    // Already closed.
   }
 }
