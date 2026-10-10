@@ -46,6 +46,13 @@ pub const CLOCK_HZ: u32 = 16_777_216;
 /// Cycles per frame: 228 scanlines × 1232 cycles.
 pub const CYCLES_PER_FRAME: u32 = 280_896;
 
+/// FNV-1a, 64-bit.
+pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
+}
+
 /// A whole Game Boy Advance.
 #[derive(Serialize, Deserialize)]
 pub struct Gba {
@@ -152,6 +159,13 @@ impl Gba {
     /// front-ends snapshot many times per second for rewind.
     pub fn save_state_into(&self, out: &mut Vec<u8>) {
         snapshot::write_into(&self.game_code(), self, out);
+    }
+
+    /// A hash of the whole machine state, to check that two emulations agree.
+    pub fn state_hash(&self) -> u64 {
+        let mut buf = Vec::new();
+        self.save_state_into(&mut buf);
+        fnv1a(&buf)
     }
 
     /// Restores a state produced by `save_state` for the same game.

@@ -7,11 +7,10 @@
 //
 // Defaults: url = http://localhost:4173 (vite preview), screenshot = build/smoke.png.
 
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { launch, sleep } from "./lib/cdp.mjs";
 
 const [romArg, url = "http://localhost:4173", shotArg] = process.argv.slice(2);
 if (!romArg) {
@@ -24,114 +23,7 @@ const screenshot = resolve(shotArg ?? join(root, "build", "smoke.png"));
 // The library names a game after its file, minus the extension.
 const romTitle = basename(rom).replace(/\.gba$/i, "");
 
-const candidates = [
-  process.env.PIPIT_BROWSER,
-  "C:/Program Files/Google/Chrome/Application/chrome.exe",
-  "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-  `${process.env.LOCALAPPDATA}/Google/Chrome/Application/chrome.exe`,
-  "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
-  "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
-  "/usr/bin/google-chrome",
-  "/usr/bin/chromium",
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-].filter(Boolean);
-const browser = candidates.find((p) => existsSync(p));
-if (!browser) {
-  console.error("no Chrome or Edge found; set PIPIT_BROWSER to a browser executable");
-  process.exit(2);
-}
-
-const port = 9333 + Math.floor(Math.random() * 1000);
-const profile = mkdtempSync(join(tmpdir(), "pipit-smoke-"));
-const child = spawn(
-  browser,
-  [
-    "--headless=new",
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profile}`,
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--autoplay-policy=no-user-gesture-required",
-    "--window-size=900,700",
-    // CI containers have no usable sandbox or /dev/shm; harmless elsewhere.
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "about:blank",
-  ],
-  { stdio: ["ignore", "ignore", "pipe"] },
-);
-let browserStderr = "";
-child.stderr.on("data", (chunk) => {
-  browserStderr += chunk;
-});
-const cleanup = () => {
-  child.kill();
-  setTimeout(() => rmSync(profile, { recursive: true, force: true }), 500);
-};
-process.on("exit", cleanup);
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-let targets = [];
-for (let i = 0; i < 150 && !targets.some((t) => t.type === "page"); i++) {
-  await sleep(200);
-  targets = await fetch(`http://127.0.0.1:${port}/json/list`)
-    .then((r) => r.json())
-    .catch(() => []);
-}
-const page = targets.find((t) => t.type === "page");
-if (!page) {
-  console.error(`browser: ${browser}\n${browserStderr.slice(-2000)}`);
-  throw new Error("browser did not expose a page target");
-}
-
-const ws = new WebSocket(page.webSocketDebuggerUrl);
-await new Promise((resolve, reject) => {
-  ws.onopen = resolve;
-  ws.onerror = reject;
-});
-let nextId = 1;
-const pending = new Map();
-const events = [];
-const logs = [];
-ws.onmessage = (e) => {
-  const msg = JSON.parse(e.data);
-  if (msg.id) {
-    const { resolve, reject } = pending.get(msg.id);
-    pending.delete(msg.id);
-    msg.error ? reject(new Error(msg.error.message)) : resolve(msg.result);
-  } else {
-    events.push(msg);
-    if (msg.method === "Runtime.consoleAPICalled") {
-      logs.push(`${msg.params.type}: ${msg.params.args.map((a) => a.value ?? a.description ?? "").join(" ")}`);
-    } else if (msg.method === "Runtime.exceptionThrown") {
-      logs.push(`exception: ${msg.params.exceptionDetails.text} ${msg.params.exceptionDetails.exception?.description ?? ""}`);
-    } else if (msg.method === "Log.entryAdded" && msg.params.entry.level === "error") {
-      logs.push(`error: ${msg.params.entry.text} ${msg.params.entry.url ?? ""}`);
-    }
-  }
-};
-const send = (method, params = {}) =>
-  new Promise((resolve, reject) => {
-    const id = nextId++;
-    pending.set(id, { resolve, reject });
-    ws.send(JSON.stringify({ id, method, params }));
-  });
-const evaluate = async (expression) => {
-  const r = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
-  if (r.exceptionDetails) throw new Error(r.exceptionDetails.text);
-  return r.result.value;
-};
-const pressKey = async (code, key, keyCode, modifiers = 0) => {
-  await send("Input.dispatchKeyEvent", { type: "keyDown", code, key, windowsVirtualKeyCode: keyCode, modifiers });
-  await send("Input.dispatchKeyEvent", { type: "keyUp", code, key, windowsVirtualKeyCode: keyCode, modifiers });
-};
-
-await send("Page.enable");
-await send("Runtime.enable");
-await send("Log.enable");
-await send("Page.navigate", { url });
+const { send, evaluate, pressKey, logs, close, newWindow } = await launch(url);
 await sleep(1500);
 
 const dumpLogs = () => {
@@ -329,6 +221,53 @@ await sleep(3000);
 const toastGone = await evaluate("document.querySelectorAll('.toast').length === 0");
 console.log(`save state: "${savedToast}" / "${loadedToast}"; toast animation "${toastAnimation}", gone after 3 s: ${toastGone}`);
 
+// Play together: a second tab joins the first with its code. Both then run the two
+// consoles in lockstep and compare state digests every second, so staying linked
+// for a few seconds (with keys pressed on one side) proves the inputs and the
+// emulation agree. When the guest leaves, the host is told and returns to the library.
+const guest = await newWindow(url);
+await sleep(1500);
+await guest.evaluate("document.querySelector('.rom-main').click(); true");
+await sleep(1500);
+const openLinkDialog = (page) =>
+  page.evaluate("document.querySelector('[data-action=menu]').click(); document.querySelector('.menu [data-action=link]').click(); true");
+await openLinkDialog({ evaluate });
+await evaluate("document.querySelector('[data-action=host]').click(); true");
+await sleep(400);
+const code = await evaluate("document.querySelector('.link-code').textContent");
+await openLinkDialog(guest);
+await guest.evaluate(
+  `document.querySelector('.link-input').value = ${JSON.stringify(code)}; document.querySelector('[data-action=join-form]').requestSubmit(); true`,
+);
+await sleep(4500);
+const linkState = (page = { evaluate }) =>
+  page.evaluate(
+    `(() => { const p = document.querySelector('.player'); return { linked: p.classList.contains('linked'), waiting: p.classList.contains('waiting'),
+      badge: getComputedStyle(document.querySelector('.link-badge')).display !== 'none', fps: document.querySelector('.toolbar-fps').textContent,
+      frame: Number(p.dataset.linkFrame), toast: document.querySelector('.toast')?.textContent ?? '' }; })()`,
+  );
+const linkHost = await linkState();
+const linkGuest = await linkState(guest);
+await sleep(1000);
+const linkHostLater = await linkState();
+const linkGuestLater = await linkState(guest);
+console.log(`link (code ${code}): host ${JSON.stringify(linkHost)} guest ${JSON.stringify(linkGuest)}`);
+console.log(`link a second later: host frame ${linkHostLater.frame} (${linkHostLater.waiting ? "waiting" : "running"}), guest frame ${linkGuestLater.frame} (${linkGuestLater.waiting ? "waiting" : "running"})`);
+await guest.send("Input.dispatchKeyEvent", { type: "keyDown", code: "ArrowRight", key: "ArrowRight", windowsVirtualKeyCode: 39 });
+await sleep(600);
+await guest.send("Input.dispatchKeyEvent", { type: "keyUp", code: "ArrowRight", key: "ArrowRight", windowsVirtualKeyCode: 39 });
+await sleep(2500);
+const linkAfterKeys = await linkState();
+await guest.evaluate("document.querySelector('[data-action=menu]').click(); document.querySelector('.menu [data-action=leave-link]').click(); true");
+await sleep(800);
+const hostAfterLeave = await evaluate(
+  "({ library: !document.querySelector('.library').classList.contains('hidden'), toast: document.querySelector('.toast')?.textContent ?? '' })",
+);
+console.log(`link after keys: ${JSON.stringify(linkAfterKeys)}; host after the guest left: ${JSON.stringify(hostAfterLeave)}`);
+await guest.closeWindow();
+await evaluate("document.querySelector('.rom-main').click(); true");
+await sleep(2500);
+
 // Phone check: emulate a touch device in both orientations; nothing may overflow
 // horizontally, and the touch layout must follow the orientation (Auto setting).
 const phone = {};
@@ -492,7 +431,7 @@ const landingOk = (l) =>
   l.helpOverflow <= 0 &&
   l.pageOverflow <= 0;
 dumpLogs();
-ws.close();
+close();
 if (
   problems.length ||
   litPixels === 0 ||
@@ -555,7 +494,16 @@ if (
   !/toast-in/.test(toastAnimation) ||
   !toastGone ||
   !landingOk(landing) ||
-  !landingOk(landingPhone)
+  !landingOk(landingPhone) ||
+  !linkHost.linked ||
+  !linkGuest.linked ||
+  linkHost.waiting ||
+  linkGuest.waiting ||
+  !linkHost.badge ||
+  /Session over/.test(linkHost.toast) ||
+  !linkAfterKeys.linked ||
+  !hostAfterLeave.library ||
+  !/partner left/.test(hostAfterLeave.toast)
 ) {
   console.error("SMOKE TEST FAILED");
   process.exit(1);

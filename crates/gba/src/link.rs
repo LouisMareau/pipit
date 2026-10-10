@@ -53,6 +53,15 @@ impl Link {
         self.nodes
     }
 
+    /// A hash of every console's state, to check that two emulations agree.
+    pub fn state_hash(&self) -> u64 {
+        let mut bytes = Vec::new();
+        for node in &self.nodes {
+            bytes.extend_from_slice(&node.state_hash().to_le_bytes());
+        }
+        crate::fnv1a(&bytes)
+    }
+
     /// Transfers completed since the cable was connected.
     pub fn transfers(&self) -> u64 {
         self.transfers

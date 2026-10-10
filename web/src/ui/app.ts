@@ -5,18 +5,44 @@ import { takeScreenshot } from "../features/screenshots";
 import { AudioOutput } from "../platform/audio";
 import { EmulatorClient } from "../platform/emulator-client";
 import { Input, keyLabel } from "../platform/input";
+import type { Pending, Role, SessionStart, Transport } from "../platform/netplay";
+import { connect, generateCode, hashRom, LinkSession } from "../platform/netplay";
 import { FramePacer } from "../platform/pacer";
 import * as storage from "../platform/storage";
 import type { ControllerMapping, ResolvedTouchLayout, RomEntry, Settings, TouchLayout } from "../types";
-import { DEFAULT_KEYBOARD, DEFAULT_MAPPING, STATE_SLOTS } from "../types";
+import { DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key, STATE_SLOTS } from "../types";
 import { ControllerSettings } from "./controller-settings";
 import { ControllerToggle } from "./controller-toggle";
 import { icon } from "./icons";
 import { KeyboardSettings } from "./keyboard-settings";
 import { LayoutEditor } from "./layout-editor";
 import { Library } from "./library";
+import { LinkDialog } from "./link-dialog";
 import { Screen } from "./screen";
 import { TouchControls } from "./touch-controls";
+
+/** `window.pipit`, for the end-to-end scripts in `scripts/`. */
+interface TestHooks {
+  /** Keys per game frame on a link, as `frame=KEYS,…` (see `parseKeyScript`). */
+  keyScript: string | null;
+  save: () => Promise<ArrayBuffer>;
+}
+
+/** `300=START,330=,600=A+RIGHT`: the keys held from each frame on (names as in `Key`). */
+function parseKeyScript(script: string): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const entry of script.split(",")) {
+    const [frame, names = ""] = entry.split("=");
+    if (!frame?.trim()) continue;
+    let keys = 0;
+    for (const name of names.split("+")) {
+      const key = (Object.keys(Key) as (keyof typeof Key)[]).find((k) => k.toLowerCase() === name.trim().toLowerCase());
+      if (key) keys |= Key[key];
+    }
+    out.set(Number(frame), keys);
+  }
+  return out;
+}
 
 export class App {
   private root: HTMLElement;
@@ -39,6 +65,18 @@ export class App {
   private paused = false;
   private saveTimer: number | null = null;
   private latestSave: ArrayBuffer | null = null;
+  private linkDialog = new LinkDialog();
+  /** Playing together (see platform/netplay.ts); null when playing alone. */
+  private session: LinkSession | null = null;
+  /** A connection being made for a session (hosting or joining). */
+  private pendingLink: Pending<Transport> | null = null;
+  /** Keys the player holds now; on a link they reach the game a few frames later. */
+  private heldKeys = 0;
+  private stalledTicks = 0;
+  /** Test hooks (see scripts/): scripted keys on a link, and a copy of the save. */
+  private hooks: TestHooks = { keyScript: null, save: () => this.copyOfSave() };
+  private keyScript: Map<number, number> | null = null;
+  private saveWaiters: ((data: ArrayBuffer) => void)[] = [];
 
   constructor(root: HTMLElement, settings: Settings) {
     this.root = root;
@@ -70,18 +108,25 @@ export class App {
       <div class="stage">
         <div class="screen-box"></div>
         <button class="menu-fab" data-action="menu" title="Menu" aria-label="Menu">${icon("menu", 22)}</button>
+        <div class="link-wait">Waiting for your partner…</div>
       </div>
       <div class="menu-backdrop hidden" data-action="menu"></div>
       <div class="menu hidden">
         <header class="menu-header">
           <h3 class="menu-title"></h3>
+          <span class="link-badge">Linked</span>
           <span class="toolbar-fps muted small"></span>
         </header>
         <div class="menu-actions"></div>
-        <h4>Save states</h4>
-        <div class="slots"><span class="small">Save</span>${slotButtons("save-state")}</div>
-        <div class="slots"><span class="small">Load</span>${slotButtons("load-state")}</div>
-        <p class="muted small">Shift+F1–F3 saves, F1–F3 loads.</p>
+        <div class="states">
+          <h4>Save states</h4>
+          <div class="slots"><span class="small">Save</span>${slotButtons("save-state")}</div>
+          <div class="slots"><span class="small">Load</span>${slotButtons("load-state")}</div>
+          <p class="muted small">Shift+F1–F3 saves, F1–F3 loads.</p>
+        </div>
+        <h4>Link cable</h4>
+        <button class="btn" data-action="link">Play together…</button>
+        <button class="btn hidden" data-action="leave-link">Leave the session</button>
         <h4>Keyboard</h4>
         <button class="btn" data-action="keyboard">Change key bindings…</button>
         <h4>Battery save</h4>
@@ -113,7 +158,7 @@ export class App {
     this.player.querySelector(".toolbar-controller")!.append(this.controller.element);
     this.stage.append(this.touch.element);
     this.layoutEditor = new LayoutEditor(this.stage);
-    this.player.append(this.controllerSettings.element, this.keyboardSettings.element);
+    this.player.append(this.controllerSettings.element, this.keyboardSettings.element, this.linkDialog.element);
     this.root.append(this.library.element, this.player);
 
     this.library.onPlay = (entry) => this.play(entry);
@@ -123,9 +168,13 @@ export class App {
     this.wireController();
     this.wireKeyboard();
     this.wireLayoutEditor();
+    this.wireLink();
 
     this.input.attach(window);
-    this.input.onChange = (keys) => this.emulator.setKeys(keys);
+    this.input.onChange = (keys) => {
+      this.heldKeys = keys;
+      this.emulator.setKeys(keys);
+    };
     this.input.onFastForward = (held) => this.setFastForward(held);
     this.input.onPause = () => {
       if (this.current) this.togglePause();
@@ -143,6 +192,7 @@ export class App {
     window.addEventListener("beforeunload", () => this.flushSave());
     window.addEventListener("resize", () => this.applyLayout());
     this.applySettings();
+    (window as unknown as { pipit: TestHooks }).pipit = this.hooks;
   }
 
   async start() {
@@ -178,6 +228,12 @@ export class App {
   }
 
   private backToLibrary() {
+    if (this.session) {
+      const session = this.session;
+      this.session = null;
+      session.leave();
+    }
+    this.clearLinkUi();
     this.emulator.requestSave();
     this.setRunning(false);
     this.flushSave();
@@ -200,8 +256,9 @@ export class App {
   }
 
   private wireEmulator() {
-    this.pacer.onFrame = () => this.emulator.requestFrame();
+    this.pacer.onFrame = () => this.onDisplayFrame();
     this.emulator.on("loaded", () => this.setRunning(true));
+    this.emulator.on("hash", (frame, hash) => this.session?.reportHash(frame, hash));
     const fpsLabel = this.player.querySelector<HTMLElement>(".toolbar-fps")!;
     let lastFpsText = "";
     this.emulator.on("frame", (pixels, audio, fps, maxGapMs) => {
@@ -219,6 +276,7 @@ export class App {
     });
     this.emulator.on("save", (data) => {
       this.latestSave = data;
+      for (const resolve of this.saveWaiters.splice(0)) resolve(data.slice(0));
       if (this.saveTimer !== null) clearTimeout(this.saveTimer);
       this.saveTimer = window.setTimeout(() => this.flushSave(), 500);
     });
@@ -335,6 +393,146 @@ export class App {
     this.toast(`State ${slot} loaded`);
   }
 
+  // ---------------------------------------------------------------------------
+  // Play together (see platform/netplay.ts)
+  // ---------------------------------------------------------------------------
+
+  private onDisplayFrame() {
+    if (!this.session) {
+      this.emulator.requestFrame();
+      return;
+    }
+    // Scripted keys (a test hook) are given per game frame, which is what the
+    // keys published now will reach.
+    const held = this.keyScript ? (this.keyScript.get(this.session.frame + this.session.delayFrames) ?? this.scriptedKeys) : this.heldKeys;
+    if (this.keyScript) this.scriptedKeys = held;
+    const keys = this.session.tick(held);
+    if (keys) {
+      this.stalledTicks = 0;
+      this.emulator.requestFrame(keys);
+      // For diagnostics (the smoke test reads it): how far the session has run.
+      this.player.dataset["linkFrame"] = String(this.session.frame);
+    } else {
+      this.stalledTicks++;
+    }
+    // A hiccup of a few frames is invisible; a longer wait gets a notice.
+    this.player.classList.toggle("waiting", this.stalledTicks > 15);
+  }
+
+  private wireLink() {
+    this.linkDialog.onHost = () => void this.startSession("host", generateCode());
+    this.linkDialog.onJoin = (code) => void this.startSession("guest", code);
+    this.linkDialog.onCancel = () => {
+      // Cancelling while waiting for a partner drops the session.
+      this.pendingLink?.cancel();
+      this.pendingLink = null;
+      if (this.session && !this.player.classList.contains("linked")) {
+        const session = this.session;
+        this.session = null;
+        session.leave();
+      }
+      this.pauseForDialog(false);
+    };
+  }
+
+  private openLinkDialog() {
+    if (!this.current || this.session) return;
+    this.pauseForDialog(true);
+    this.linkDialog.open();
+  }
+
+  private async startSession(role: Role, code: string) {
+    if (!this.current || this.session || this.pendingLink) return;
+    const entry = this.current;
+    this.linkDialog.setBusy(true);
+    this.linkDialog.setStatus(role === "host" ? "Setting up…" : "Joining…");
+    this.linkDialog.showCode(role === "host" ? code : null);
+    this.flushSave();
+    const [rom, save] = await Promise.all([storage.getRomData(entry.id), storage.getSave(entry.id)]);
+    if (!rom) return;
+    const local = new URLSearchParams(location.search).get("link") === "local";
+    const pending = connect(role, code, local, () => this.linkDialog.setStatus("Waiting for a partner…"));
+    this.pendingLink = pending;
+    let transport: Transport;
+    try {
+      transport = await pending.transport;
+    } catch (error) {
+      if (this.pendingLink === pending) this.linkFailed(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    if (this.pendingLink !== pending || this.current !== entry || this.session) {
+      transport.close();
+      return;
+    }
+    this.pendingLink = null;
+    // Two tabs answer each other within a frame; the internet needs more slack.
+    const session = new LinkSession(transport, role, await hashRom(rom), save, local ? 2 : 4);
+    this.session = session;
+    session.onStatus = (text) => this.linkDialog.setStatus(text);
+    session.onStart = (start) => this.startLinkedGame(rom, start);
+    session.onEnd = (reason) => this.endSession(session, reason);
+  }
+
+  /** Both saves are in hand: restart the game as two linked consoles. */
+  private startLinkedGame(rom: ArrayBuffer, start: SessionStart) {
+    this.keyScript = this.hooks.keyScript ? parseKeyScript(this.hooks.keyScript) : null;
+    this.scriptedKeys = 0;
+    this.linkDialog.close();
+    this.dialogPaused = false;
+    this.paused = false;
+    this.player.querySelector('[data-action="pause"]')!.classList.remove("active");
+    this.player.classList.add("linked");
+    this.player.querySelector('[data-action="link"]')!.classList.add("hidden");
+    this.player.querySelector('[data-action="leave-link"]')!.classList.remove("hidden");
+    this.audio.clear();
+    this.stalledTicks = 0;
+    // The worker reports `loaded`, which starts the display loop.
+    this.emulator.load(rom, null, null, start.link, start.epoch);
+    this.toast(`Linked: you are player ${start.link.local + 1}`, { brief: true });
+  }
+
+  private endSession(session: LinkSession, reason: string) {
+    if (this.session !== session) return;
+    this.session = null;
+    const linked = this.player.classList.contains("linked");
+    if (linked) {
+      // The two games cannot go on alone from here; the save is kept.
+      this.clearLinkUi();
+      this.backToLibrary();
+      this.toast(`Session over: ${reason}`);
+    } else {
+      this.linkDialog.setBusy(false);
+      this.linkDialog.showCode(null);
+      this.linkDialog.setStatus(reason);
+    }
+  }
+
+  private scriptedKeys = 0;
+
+  /** The save as the game last wrote it (asks the worker for a fresh copy). */
+  private copyOfSave(): Promise<ArrayBuffer> {
+    return new Promise((resolve) => {
+      this.saveWaiters.push(resolve);
+      this.emulator.requestSave();
+    });
+  }
+
+  private linkFailed(message: string) {
+    this.pendingLink = null;
+    this.linkDialog.setBusy(false);
+    this.linkDialog.showCode(null);
+    this.linkDialog.setStatus(message);
+  }
+
+  private clearLinkUi() {
+    this.pendingLink?.cancel();
+    this.pendingLink = null;
+    this.linkDialog.close();
+    this.player.classList.remove("linked", "waiting");
+    this.player.querySelector('[data-action="link"]')!.classList.remove("hidden");
+    this.player.querySelector('[data-action="leave-link"]')!.classList.add("hidden");
+  }
+
   /** Shows a notice card; a `brief` one (controller events) stays about a second. */
   private toast(message: string, options: { brief?: boolean } = {}) {
     // One notice at a time: a new one replaces whatever is still showing.
@@ -350,6 +548,8 @@ export class App {
   }
 
   private setFastForward(on: boolean) {
+    // Fast-forwarding alone would leave a link partner behind.
+    if (this.session) return;
     this.emulator.setFastForward(on);
     this.player.querySelector('[data-action="fast"]')!.classList.toggle("active", on);
   }
@@ -440,6 +640,14 @@ export class App {
           this.setMenuOpen(false);
           this.pauseForDialog(true);
           this.keyboardSettings.open(this.settings.keyboardMapping);
+          break;
+        case "link":
+          this.setMenuOpen(false);
+          this.openLinkDialog();
+          break;
+        case "leave-link":
+          this.setMenuOpen(false);
+          this.session?.leave();
           break;
         case "edit-layout":
           this.openLayoutEditor();

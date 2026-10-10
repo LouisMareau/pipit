@@ -19,12 +19,24 @@ export type KeyName = keyof typeof Key;
 export const SCREEN_WIDTH = 240;
 export const SCREEN_HEIGHT = 160;
 
+/** Several consoles on a link cable, all running the loaded ROM (see `platform/netplay.ts`). */
+export interface LinkLoad {
+  players: number;
+  /** The console this player sees and controls. */
+  local: number;
+  /** Each console's save data, in player order. */
+  saves: (ArrayBuffer | null)[];
+}
+
 export type ToWorker =
-  | { type: "load"; rom: ArrayBuffer; save: ArrayBuffer | null; bios: ArrayBuffer | null; unixSeconds: number }
+  | { type: "load"; rom: ArrayBuffer; save: ArrayBuffer | null; bios: ArrayBuffer | null; unixSeconds: number; link?: LinkLoad }
   | { type: "run" }
   | { type: "pause" }
-  /** The UI's display loop asks for one emulated frame (see `platform/pacer.ts`). */
-  | { type: "frame" }
+  /**
+   * The UI's display loop asks for one emulated frame (see `platform/pacer.ts`).
+   * On a link, `keys` holds every player's keys for that frame.
+   */
+  | { type: "frame"; keys?: number[] }
   | { type: "keys"; keys: number }
   | { type: "fastForward"; enabled: boolean }
   | { type: "colors"; mode: number; strength: number }
@@ -37,6 +49,8 @@ export type FromWorker =
   | { type: "loaded"; title: string; gameCode: string }
   /** `maxGapMs`: the longest pause between frames in the last second (stutter diagnostics). */
   | { type: "frame"; pixels: ArrayBuffer; audio: ArrayBuffer; fps: number; maxGapMs: number }
+  /** On a link: a digest of every console's state after `frame` frames (see `netplay.ts`). */
+  | { type: "hash"; frame: number; hash: number }
   | { type: "save"; data: ArrayBuffer }
   | { type: "state"; slot: number; data: ArrayBuffer }
   | { type: "error"; message: string };

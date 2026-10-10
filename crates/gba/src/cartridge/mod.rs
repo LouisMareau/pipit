@@ -36,6 +36,9 @@ pub struct Cartridge {
     rom: Vec<u8>,
     backup: Backup,
     save_type: SaveType,
+    /// Backup memory changed since the front-end last looked: bookkeeping, not
+    /// machine state (linked players must hash identical states).
+    #[serde(skip)]
     dirty: bool,
     /// GPIO port (RTC). Always present: a game that never enables it just sees ROM.
     gpio: Gpio,

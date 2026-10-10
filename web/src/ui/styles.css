@@ -1288,3 +1288,92 @@ body[data-chrome="drawer"] .toast {
   background: var(--accent);
   color: var(--accent-ink);
 }
+
+/* Play together -------------------------------------------------------------- */
+
+.link-dialog p {
+  margin: 0 0 12px;
+}
+
+.link-section {
+  margin-bottom: 14px;
+}
+
+.link-section h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.link-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.link-code {
+  font: 600 26px/1 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  letter-spacing: 0.18em;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--accent-light);
+  user-select: all;
+}
+
+.link-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 10px 12px;
+  font: 600 18px/1.2 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.link-status {
+  min-height: 1.4em;
+  margin: 0 0 8px;
+}
+
+/* In a session: no fast-forward and no save states (the partner could not follow). */
+.player.linked [data-action="fast"],
+.player.linked .menu .states {
+  display: none;
+}
+
+.link-badge {
+  display: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.player.linked .link-badge {
+  display: inline-block;
+}
+
+/* The partner's keys have not arrived: the game is held until they do. */
+.link-wait {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: none;
+  place-items: center;
+  background: rgb(0 0 0 / 0.45);
+  color: var(--text);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.player.linked.waiting .link-wait {
+  display: grid;
+}

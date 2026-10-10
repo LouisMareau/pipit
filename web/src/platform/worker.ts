@@ -8,9 +8,11 @@
 // periodic garbage-collection pauses that show up as stutter.)
 
 import init, { Emulator } from "@wasm/pipit_wasm.js";
-import type { FromWorker, ToWorker } from "../types";
+import type { FromWorker, LinkLoad, ToWorker } from "../types";
 
 const SAVE_CHECK_FRAMES = 60;
+/** On a link, how often the state digest is reported for comparison with the partner's. */
+const HASH_FRAMES = 60;
 
 let emulator: Emulator | null = null;
 let memory: WebAssembly.Memory | null = null;
@@ -18,6 +20,8 @@ let running = false;
 let fastForward = false;
 let fastForwardTimer: ReturnType<typeof setTimeout> | null = null;
 let keys = 0;
+/** Several consoles on a link: keys arrive with each frame request, fast-forward is off. */
+let linked = false;
 let colorMode = 1;
 let colorStrength = 1;
 let frameCounter = 0;
@@ -37,7 +41,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   const msg = event.data;
   switch (msg.type) {
     case "load":
-      await load(msg.rom, msg.save, msg.bios, msg.unixSeconds);
+      await load(msg.rom, msg.save, msg.bios, msg.unixSeconds, msg.link);
       break;
     case "run":
       running = true;
@@ -49,13 +53,16 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       stopFastForward();
       break;
     case "frame":
-      if (running && !fastForward) step();
+      if (!running || fastForward) break;
+      if (msg.keys) msg.keys.forEach((k, i) => emulator?.set_player_keys(i, k));
+      step();
       break;
     case "keys":
       keys = msg.keys;
-      emulator?.set_keys(keys);
+      if (!linked) emulator?.set_keys(keys);
       break;
     case "fastForward":
+      if (linked) break;
       fastForward = msg.enabled;
       if (fastForward && running) startFastForward();
       else stopFastForward();
@@ -91,15 +98,24 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   }
 };
 
-async function load(rom: ArrayBuffer, save: ArrayBuffer | null, bios: ArrayBuffer | null, unixSeconds: number) {
+async function load(rom: ArrayBuffer, save: ArrayBuffer | null, bios: ArrayBuffer | null, unixSeconds: number, link?: LinkLoad) {
   try {
     if (!memory) {
       const wasm = await init();
       memory = wasm.memory;
     }
     emulator?.free();
-    emulator = new Emulator(new Uint8Array(rom), bios ? new Uint8Array(bios) : undefined);
-    if (save) emulator.load_save_data(new Uint8Array(save));
+    const biosBytes = bios ? new Uint8Array(bios) : undefined;
+    linked = link !== undefined && link.players > 1;
+    if (link && linked) {
+      emulator = Emulator.linked(new Uint8Array(rom), link.players, link.local, biosBytes);
+      link.saves.forEach((data, i) => {
+        if (data) emulator?.load_player_save_data(i, new Uint8Array(data));
+      });
+    } else {
+      emulator = new Emulator(new Uint8Array(rom), biosBytes);
+      if (save) emulator.load_save_data(new Uint8Array(save));
+    }
     emulator.set_time(unixSeconds);
     emulator.set_keys(keys);
     emulator.set_color_correction(colorMode, colorStrength);
@@ -151,6 +167,9 @@ function step() {
 
   postFrame();
   if (frameCounter % SAVE_CHECK_FRAMES === 0 && emulator.take_save_dirty()) sendSave();
+  if (linked && frameCounter % HASH_FRAMES === 0) {
+    post({ type: "hash", frame: frameCounter, hash: emulator.state_hash() });
+  }
 }
 
 function postFrame() {

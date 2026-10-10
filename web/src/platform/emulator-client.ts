@@ -1,12 +1,13 @@
 // UI-thread handle on the emulator worker: a small typed event emitter.
 
-import type { FromWorker, ToWorker } from "../types";
+import type { FromWorker, LinkLoad, ToWorker } from "../types";
 
 type Handlers = {
   frame: (pixels: ArrayBuffer, audio: ArrayBuffer, fps: number, maxGapMs: number) => void;
   loaded: (title: string, gameCode: string) => void;
   save: (data: ArrayBuffer) => void;
   state: (slot: number, data: ArrayBuffer) => void;
+  hash: (frame: number, hash: number) => void;
   error: (message: string) => void;
 };
 
@@ -32,6 +33,9 @@ export class EmulatorClient {
         case "state":
           this.handlers.state?.(msg.slot, msg.data);
           break;
+        case "hash":
+          this.handlers.hash?.(msg.frame, msg.hash);
+          break;
         case "error":
           this.handlers.error?.(msg.message);
           break;
@@ -48,9 +52,12 @@ export class EmulatorClient {
     this.worker.postMessage(msg, transfer);
   }
 
-  load(rom: ArrayBuffer, save: ArrayBuffer | null, bios: ArrayBuffer | null) {
-    const unixSeconds = Math.floor(Date.now() / 1000);
-    this.send({ type: "load", rom, save, bios, unixSeconds }, [rom]);
+  /**
+   * Loads a game. On a link, `link` names every console's save and the
+   * `unixSeconds` both players agreed on, so the cartridge clocks match.
+   */
+  load(rom: ArrayBuffer, save: ArrayBuffer | null, bios: ArrayBuffer | null, link?: LinkLoad, unixSeconds = Math.floor(Date.now() / 1000)) {
+    this.send({ type: "load", rom, save, bios, unixSeconds, link }, [rom]);
   }
 
   run() {
@@ -69,9 +76,9 @@ export class EmulatorClient {
     this.send({ type: "fastForward", enabled });
   }
 
-  /** Asks the worker to emulate one frame (called from the display loop). */
-  requestFrame() {
-    this.send({ type: "frame" });
+  /** Asks the worker to emulate one frame (called from the display loop); on a link, with every player's keys. */
+  requestFrame(keys?: number[]) {
+    this.send({ type: "frame", keys });
   }
 
   /** 0 = raw colours, 1 = GBA LCD look at `strength` 0-1. */

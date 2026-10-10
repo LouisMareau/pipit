@@ -67,4 +67,14 @@ CPU's cycle count is accurate without ticking components each cycle.
   resampling rate by up to ±1 % to keep its buffer near 125 ms. Frames are posted
   as transferable buffers and recycled. ROMs and saves live in IndexedDB on the
   device and are never uploaded anywhere.
-- `desktop/` (planned) wraps the same web app with Tauri.
+- Playing together (`platform/netplay.ts`) does not send cable traffic over the
+  network: both players' consoles run on both machines, joined by the core's
+  in-process link, and only button states cross the wire. Emulation is
+  deterministic, so both machines compute the same two games and each shows its
+  own console; keys are applied a few frames late to hide latency, and the two
+  compare state digests every second to catch drift. Joining sends the guest's
+  save and ROM digest, the host answers with its save and the cartridge clock to
+  start from. The connection is a WebRTC data channel introduced by a public
+  PeerJS server (the host's code is its id); `?link=local` joins two tabs of one
+  browser instead, which is what the smoke test uses.
+- `desktop/` wraps the same web app with Tauri (installers via `npm run build`).

@@ -49,3 +49,22 @@ A quick way to read a party out of a save file: the newest slot is the one with
 the higher save counter at offset `0xFFC` of its sectors; in its section 1 the
 party count is at `0x234` and each Pokémon's nickname at `0x238 + 100·i + 8`
 (Gen 3 text: `0xBB` = A).
+
+## Through the web app
+
+Playing together runs both consoles on both machines and only exchanges button
+states (see [architecture.md](architecture.md)), so the same trade can be driven
+through the web app itself, in two browser windows:
+
+```text
+node scripts/link-trade-web.mjs game.gba counter.sav keys-a.txt keys-b.txt http://localhost:4173
+```
+
+The script adds the ROM, seeds the save, hosts in one window and joins from the
+other, feeds the key scripts through the app's test hook (`window.pipit.keyScript`,
+keys per game frame as above), waits the three minutes the session takes at the
+display rate, and reads both saves back (`window.pipit.save()`) to check the
+parties swapped. The smoke test covers the session mechanics without a ROM that
+uses the cable: two windows stay linked with matching state digests while keys
+are pressed, and the host is told when the guest leaves. It uses `?link=local`
+(two tabs of one browser, no introduction server).
