@@ -25,7 +25,7 @@ pub enum SaveType {
 #[derive(Serialize, Deserialize)]
 enum Backup {
     None,
-    Sram(#[serde(with = "crate::snapshot::bytes_box")] Box<[u8; 0x8000]>),
+    Sram(#[serde(with = "pipit_common::snapshot::bytes_box")] Box<[u8; 0x8000]>),
     Flash(Flash),
     Eeprom(Eeprom),
 }

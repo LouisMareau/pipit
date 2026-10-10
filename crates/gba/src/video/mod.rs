@@ -51,14 +51,14 @@ pub struct Video {
     pub bldalpha: u16,
     pub bldy: u16,
 
-    #[serde(with = "crate::snapshot::bytes_box")]
+    #[serde(with = "pipit_common::snapshot::bytes_box")]
     pub palette: Box<[u8; PALETTE_SIZE]>,
-    #[serde(with = "crate::snapshot::bytes_box")]
+    #[serde(with = "pipit_common::snapshot::bytes_box")]
     pub vram: Box<[u8; VRAM_SIZE]>,
-    #[serde(with = "crate::snapshot::bytes_box")]
+    #[serde(with = "pipit_common::snapshot::bytes_box")]
     pub oam: Box<[u8; OAM_SIZE]>,
 
-    #[serde(with = "crate::snapshot::words_box")]
+    #[serde(with = "pipit_common::snapshot::words_box")]
     framebuffer: Box<[u32; SCREEN_WIDTH * SCREEN_HEIGHT]>,
     frame_ready: bool,
     #[serde(skip)]

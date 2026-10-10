@@ -12,5 +12,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pipit-gba = { workspace = true }
+pipit-gbc = { workspace = true }
 wasm-bindgen = { workspace = true }
 js-sys = { workspace = true }

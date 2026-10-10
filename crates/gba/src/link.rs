@@ -11,8 +11,8 @@
 //! multiplayer. Play over a network will carry the same words with a delay.
 
 use crate::sio::{Mode, Stop};
-use crate::snapshot::StateError;
 use crate::Gba;
+use pipit_common::snapshot::StateError;
 use serde::{Deserialize, Serialize};
 
 /// Everything a `Link` needs to continue exactly: each console plus the cable.

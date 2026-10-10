@@ -1412,3 +1412,11 @@ body[data-chrome="drawer"] .toast {
   padding: 6px 8px;
   font: inherit;
 }
+
+/* Game Boy games: no shoulder buttons, and no link play yet. */
+.player[data-system="gbc"] .tbtn-shoulder,
+.player[data-system="gbc"] .edit-box[data-id="l"],
+.player[data-system="gbc"] .edit-box[data-id="r"],
+.player[data-system="gbc"] [data-action="link"] {
+  display: none;
+}

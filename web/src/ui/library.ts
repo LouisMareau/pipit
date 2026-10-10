@@ -1,9 +1,7 @@
-// The ROM library: the list of games stored on this device, one tab per system.
-// Only the GBA tab shows for now; the GBC tab is in the DOM but hidden until a
-// core for it exists.
+// The ROM library: the games stored on this device, one tab per console.
 
 import * as storage from "../platform/storage";
-import type { RomEntry } from "../types";
+import type { RomEntry, System } from "../types";
 import { icon } from "./icons";
 
 /** One line of the keyboard summary: an action and the key(s) bound to it. */
@@ -14,6 +12,11 @@ export interface KeyHelpRow {
   note?: string;
 }
 
+const SYSTEMS: { id: System; name: string; accept: string; files: string }[] = [
+  { id: "gba", name: "GBA", accept: ".gba,application/octet-stream", files: ".gba" },
+  { id: "gbc", name: "GBC", accept: ".gb,.gbc,application/octet-stream", files: ".gb or .gbc" },
+];
+
 export class Library {
   readonly element: HTMLDivElement;
   onPlay: (entry: RomEntry) => void = () => {};
@@ -21,33 +24,33 @@ export class Library {
   constructor() {
     this.element = document.createElement("div");
     this.element.className = "library";
+    const panels = SYSTEMS.map(
+      (s) => `
+      <section class="tab-panel${s.id === "gba" ? "" : " hidden"}" role="tabpanel" data-panel="${s.id}">
+        <div class="add-row">
+          <label class="add-rom">
+            <input type="file" accept="${s.accept}" multiple hidden />
+            <span class="btn btn-primary">Add a <code>${s.files}</code> ROM</span>
+          </label>
+          <span class="info">
+            <button type="button" class="info-btn" aria-label="Which files can I add?" aria-expanded="false">
+              ${icon("info", 18)}
+            </button>
+            <span class="info-pop" role="tooltip"><code>${s.files}</code> files you own, including your own builds and hacks.</span>
+          </span>
+        </div>
+        <ul class="rom-list" data-system="${s.id}"></ul>
+      </section>`,
+    );
     this.element.innerHTML = `
       <header class="library-header">
         <h1><img src="${import.meta.env.BASE_URL}icons/icon.svg" alt="" width="36" height="36" /> Pipit</h1>
         <p class="muted">Your games stay on this device. Nothing is uploaded.</p>
       </header>
       <nav class="tabs" role="tablist" aria-label="Systems">
-        <button class="tab active" role="tab" aria-selected="true" data-tab="gba">GBA</button>
-        <button class="tab hidden" role="tab" aria-selected="false" data-tab="gbc">GBC</button>
+        ${SYSTEMS.map((s) => `<button class="tab${s.id === "gba" ? " active" : ""}" role="tab" aria-selected="${s.id === "gba"}" data-tab="${s.id}">${s.name}</button>`).join("")}
       </nav>
-      <section class="tab-panel" role="tabpanel" data-panel="gba">
-        <div class="add-row">
-          <label class="add-rom">
-            <input type="file" accept=".gba,application/octet-stream" multiple hidden />
-            <span class="btn btn-primary">Add a <code>.gba</code> ROM</span>
-          </label>
-          <span class="info">
-            <button type="button" class="info-btn" aria-label="Which files can I add?" aria-expanded="false">
-              ${icon("info", 18)}
-            </button>
-            <span class="info-pop" role="tooltip"><code>.gba</code> files you own, including your own builds and hacks.</span>
-          </span>
-        </div>
-        <ul class="rom-list"></ul>
-      </section>
-      <section class="tab-panel hidden" role="tabpanel" data-panel="gbc">
-        <p class="muted empty">GBC support is coming later.</p>
-      </section>
+      ${panels.join("")}
       <aside class="alert keys-help">
         <span class="alert-icon">${icon("info", 20)}</span>
         <div class="alert-body">
@@ -57,32 +60,35 @@ export class Library {
         </div>
       </aside>`;
 
-    const input = this.element.querySelector<HTMLInputElement>("input[type=file]")!;
-    input.addEventListener("change", async () => {
-      for (const file of input.files ?? []) await storage.addRom(file);
-      input.value = "";
-      await this.refresh();
-    });
+    for (const input of this.element.querySelectorAll<HTMLInputElement>("input[type=file]")) {
+      input.addEventListener("change", async () => {
+        for (const file of input.files ?? []) await storage.addRom(file);
+        input.value = "";
+        await this.refresh();
+      });
+    }
 
     for (const tab of this.element.querySelectorAll<HTMLButtonElement>(".tab")) {
       tab.addEventListener("click", () => this.showTab(tab.dataset["tab"]!));
     }
 
-    // The (i) popover: a tap toggles it; a tap anywhere else or Escape closes it.
-    // (With a mouse, hovering shows it too; see the CSS.)
-    const info = this.element.querySelector<HTMLElement>(".info")!;
-    const infoButton = info.querySelector<HTMLButtonElement>(".info-btn")!;
-    const setInfo = (open: boolean) => {
+    // The (i) popovers: a tap toggles one; a tap anywhere else or Escape closes them.
+    // (With a mouse, hovering shows them too; see the CSS.)
+    const infos = Array.from(this.element.querySelectorAll<HTMLElement>(".info"));
+    const setInfo = (info: HTMLElement, open: boolean) => {
       info.classList.toggle("open", open);
-      infoButton.setAttribute("aria-expanded", String(open));
+      info.querySelector("button")!.setAttribute("aria-expanded", String(open));
     };
-    infoButton.addEventListener("click", (e) => {
-      e.stopPropagation();
-      setInfo(!info.classList.contains("open"));
-    });
-    document.addEventListener("click", () => setInfo(false));
+    for (const info of infos) {
+      info.querySelector("button")!.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setInfo(info, !info.classList.contains("open"));
+      });
+    }
+    const closeAll = () => infos.forEach((info) => setInfo(info, false));
+    document.addEventListener("click", closeAll);
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") setInfo(false);
+      if (e.key === "Escape") closeAll();
     });
   }
 
@@ -126,36 +132,41 @@ export class Library {
   }
 
   async refresh() {
-    const list = this.element.querySelector<HTMLUListElement>(".rom-list")!;
     const entries = await storage.listRoms();
-    list.replaceChildren();
-    if (entries.length === 0) {
-      const empty = document.createElement("li");
-      empty.className = "muted empty";
-      empty.textContent = "No games yet. Add a .gba file to get started.";
-      list.append(empty);
-      return;
+    for (const system of SYSTEMS) {
+      const list = this.element.querySelector<HTMLUListElement>(`.rom-list[data-system=${system.id}]`)!;
+      list.replaceChildren();
+      const mine = entries.filter((e) => (e.system ?? "gba") === system.id);
+      if (mine.length === 0) {
+        const empty = document.createElement("li");
+        empty.className = "muted empty";
+        empty.textContent = `No games yet. Add a ${system.files} file to get started.`;
+        list.append(empty);
+        continue;
+      }
+      for (const entry of mine) list.append(this.item(entry));
     }
-    for (const entry of entries) {
-      const item = document.createElement("li");
-      item.className = "rom";
-      item.innerHTML = `
-        <button class="rom-main">
-          <span class="rom-name"></span>
-          <span class="rom-meta muted small"></span>
-        </button>
-        <button class="btn btn-icon rom-delete" title="Remove from library" aria-label="Remove">&#10005;</button>`;
-      item.querySelector(".rom-name")!.textContent = entry.name;
-      item.querySelector(".rom-meta")!.textContent =
-        `${entry.title || "Untitled"} · ${entry.gameCode || "????"} · ${(entry.size / 1048576).toFixed(1)} MB`;
-      item.querySelector(".rom-main")!.addEventListener("click", () => this.onPlay(entry));
-      item.querySelector(".rom-delete")!.addEventListener("click", async () => {
-        if (confirm(`Remove "${entry.name}" and its save data from this device?`)) {
-          await storage.deleteRom(entry.id);
-          await this.refresh();
-        }
-      });
-      list.append(item);
-    }
+  }
+
+  private item(entry: RomEntry): HTMLLIElement {
+    const item = document.createElement("li");
+    item.className = "rom";
+    item.innerHTML = `
+      <button class="rom-main">
+        <span class="rom-name"></span>
+        <span class="rom-meta muted small"></span>
+      </button>
+      <button class="btn btn-icon rom-delete" title="Remove from library" aria-label="Remove">&#10005;</button>`;
+    item.querySelector(".rom-name")!.textContent = entry.name;
+    item.querySelector(".rom-meta")!.textContent =
+      `${entry.title || "Untitled"} · ${entry.gameCode || "????"} · ${(entry.size / 1048576).toFixed(1)} MB`;
+    item.querySelector(".rom-main")!.addEventListener("click", () => this.onPlay(entry));
+    item.querySelector(".rom-delete")!.addEventListener("click", async () => {
+      if (confirm(`Remove "${entry.name}" and its save data from this device?`)) {
+        await storage.deleteRom(entry.id);
+        await this.refresh();
+      }
+    });
+    return item;
   }
 }

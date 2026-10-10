@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 pipit-gba = { workspace = true }
+pipit-gbc = { workspace = true }
 clap = { workspace = true }
 png = { workspace = true }
 anyhow = { workspace = true }

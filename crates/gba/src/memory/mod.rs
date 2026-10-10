@@ -55,9 +55,9 @@ pub struct Bus {
     pub cart: Cartridge,
     pub bios: Bios,
 
-    #[serde(with = "crate::snapshot::bytes_box")]
+    #[serde(with = "pipit_common::snapshot::bytes_box")]
     ewram: Box<[u8; EWRAM_SIZE]>,
-    #[serde(with = "crate::snapshot::bytes_box")]
+    #[serde(with = "pipit_common::snapshot::bytes_box")]
     iwram: Box<[u8; IWRAM_SIZE]>,
 
     /// WAITCNT (0x4000204).

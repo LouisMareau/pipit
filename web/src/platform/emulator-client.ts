@@ -1,10 +1,10 @@
 // UI-thread handle on the emulator worker: a small typed event emitter.
 
-import type { FromWorker, LinkLoad, ToWorker } from "../types";
+import type { FromWorker, LinkLoad, System, ToWorker } from "../types";
 
 type Handlers = {
   frame: (pixels: ArrayBuffer, audio: ArrayBuffer, fps: number, maxGapMs: number) => void;
-  loaded: (title: string, gameCode: string) => void;
+  loaded: (title: string, gameCode: string, width: number, height: number) => void;
   save: (data: ArrayBuffer) => void;
   state: (slot: number, data: ArrayBuffer) => void;
   hash: (frame: number, hash: number) => void;
@@ -25,7 +25,7 @@ export class EmulatorClient {
           this.handlers.frame?.(msg.pixels, msg.audio, msg.fps, msg.maxGapMs);
           break;
         case "loaded":
-          this.handlers.loaded?.(msg.title, msg.gameCode);
+          this.handlers.loaded?.(msg.title, msg.gameCode, msg.width, msg.height);
           break;
         case "save":
           this.handlers.save?.(msg.data);
@@ -56,8 +56,15 @@ export class EmulatorClient {
    * Loads a game. On a link, `link` names every console's save and the
    * `unixSeconds` both players agreed on, so the cartridge clocks match.
    */
-  load(rom: ArrayBuffer, save: ArrayBuffer | null, bios: ArrayBuffer | null, link?: LinkLoad, unixSeconds = Math.floor(Date.now() / 1000)) {
-    this.send({ type: "load", rom, save, bios, unixSeconds, link }, [rom]);
+  load(
+    rom: ArrayBuffer,
+    save: ArrayBuffer | null,
+    bios: ArrayBuffer | null,
+    system: System = "gba",
+    link?: LinkLoad,
+    unixSeconds = Math.floor(Date.now() / 1000),
+  ) {
+    this.send({ type: "load", rom, save, bios, unixSeconds, system, link }, [rom]);
   }
 
   run() {

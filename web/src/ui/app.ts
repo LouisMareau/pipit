@@ -151,7 +151,7 @@ export class App {
         <label class="row"><span>Volume</span><input type="range" min="0" max="1" step="0.05" data-setting="volume" /></label>
         <label class="row"><span>Colours</span>
           <select data-setting="colorCorrection">
-            <option value="gba">GBA LCD — muted, as on the original screen</option>
+            <option value="gba">LCD — muted, as on the original screen</option>
             <option value="off">Raw — the palette as stored in the game</option>
           </select>
         </label>
@@ -227,7 +227,8 @@ export class App {
     this.applyLayout();
     this.screen.fit();
     this.audio.clear();
-    this.emulator.load(rom, save, null);
+    this.player.dataset["system"] = entry.system ?? "gba";
+    this.emulator.load(rom, save, null, entry.system ?? "gba");
     await storage.touchRom(entry.id);
     await this.refreshStateSlots();
   }
@@ -272,7 +273,11 @@ export class App {
 
   private wireEmulator() {
     this.pacer.onFrame = () => this.onDisplayFrame();
-    this.emulator.on("loaded", () => this.setRunning(true));
+    this.emulator.on("loaded", (_title, _code, width, height) => {
+      this.screen.setSize(width, height);
+      this.layoutEditor.setScreenAspect(width / height);
+      this.setRunning(true);
+    });
     this.emulator.on("hash", (frame, hash) => this.session?.reportHash(frame, hash));
     const fpsLabel = this.player.querySelector<HTMLElement>(".toolbar-fps")!;
     let lastFpsText = "";
@@ -541,7 +546,7 @@ export class App {
     this.audio.clear();
     this.stalledTicks = 0;
     // The worker reports `loaded`, which starts the display loop.
-    this.emulator.load(rom, null, null, start.link, start.epoch);
+    this.emulator.load(rom, null, null, "gba", start.link, start.epoch);
     this.sessionPlayers = start.link.players;
     this.player.querySelector(".link-badge")!.textContent = `Linked · ${start.link.players} players`;
     // Watching: any console of the link can be shown; keys still go to your own.

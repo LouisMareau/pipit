@@ -19,7 +19,16 @@ Checked items are done and covered by tests.
 - [ ] Cheat codes (GameShark / CodeBreaker)
 - [x] Link cable: multi-play mode, up to four consoles in lockstep in one process (`pipit link`; Emerald trades with itself headless, see [link-testing.md](link-testing.md))
 
-## Web app
+## Game Boy / Game Boy Color core
+
+- [x] SM83 CPU (Blargg's `cpu_instrs`, `instr_timing`, `mem_timing`)
+- [x] Picture: classic shades and colour palettes, window, sprites, HBlank DMA (`dmg-acid2`, `cgb-acid2`)
+- [x] Sound: four channels, stereo
+- [x] MBC1/2/3/5 with battery saves; the MBC3 clock, saved in the usual trailer
+- [x] Double speed, the mooneye timer and OAM tests
+- [ ] Sub-cycle access timing (the rest of mooneye's acceptance tests)
+- [ ] Link cable for Game Boy games, and playing them together
+- [ ] The Color's palettes for classic games, Super Game Boy borders
 
 - [x] Load a ROM from the device, play with keyboard
 - [x] Touch controls (built; needs a round of testing on real phones)
@@ -46,5 +55,5 @@ Checked items are done and covered by tests.
 
 ## Later
 
-- [ ] GBC core — the library already has a hidden GBC tab waiting for it
+
 - [x] Playing together: the host adjusts the delay while playing from the live ping; late keys are guessed from the last seen ones and a wrong guess rolls back and re-runs up to eight frames; any console of the link can be watched (Watch in the player menu)

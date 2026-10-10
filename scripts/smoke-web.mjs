@@ -12,9 +12,9 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launch, sleep } from "./lib/cdp.mjs";
 
-const [romArg, url = "http://localhost:4173", shotArg] = process.argv.slice(2);
+const [romArg, url = "http://localhost:4173", shotArg, gbRomArg] = process.argv.slice(2);
 if (!romArg) {
-  console.error("usage: node scripts/smoke-web.mjs <rom.gba> [url] [screenshot.png]");
+  console.error("usage: node scripts/smoke-web.mjs <rom.gba> [url] [screenshot.png] [rom.gbc]");
   process.exit(2);
 }
 const rom = resolve(romArg);
@@ -439,10 +439,38 @@ if (process.env.PIPIT_SMOKE_LIBRARY_SHOTS) {
 }
 await send("Emulation.clearDeviceMetricsOverride");
 
+// A Game Boy game, when one is given: it goes under the GBC tab, plays at 160×144,
+// and has no shoulder buttons.
+let gb = null;
+if (gbRomArg) {
+  await evaluate("document.querySelector('.tab[data-tab=gbc]').click(); true");
+  const { root: doc2 } = await send("DOM.getDocument", { depth: 1 });
+  const { nodeId: gbInput } = await send("DOM.querySelector", { nodeId: doc2.nodeId, selector: "[data-panel=gbc] input[type=file]" });
+  await send("DOM.setFileInputFiles", { nodeId: gbInput, files: [resolve(gbRomArg)] });
+  await sleep(1500);
+  const listed = await evaluate("document.querySelectorAll('.rom-list[data-system=gbc] .rom-main').length");
+  await evaluate("document.querySelector('.rom-list[data-system=gbc] .rom-main').click(); true");
+  await sleep(2500);
+  gb = await evaluate(`(() => {
+    const canvas = document.querySelector('.screen');
+    const ctx = canvas.getContext('2d');
+    const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let lit = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] | d[i + 1] | d[i + 2]) lit++;
+    return { listed: ${listed}, system: document.querySelector('.player').dataset.system, width: canvas.width, height: canvas.height,
+      lit, fps: document.querySelector('.toolbar-fps').textContent,
+      shouldersHidden: getComputedStyle(document.querySelector('.tbtn-shoulder')).display === 'none',
+      linkHidden: getComputedStyle(document.querySelector('.menu [data-action=link]')).display === 'none' };
+  })()`);
+  console.log(`game boy: ${JSON.stringify(gb)}`);
+  await evaluate("document.querySelector('[data-action=back]').click(); true");
+  await sleep(500);
+}
+
 const problems = logs.filter((l) => /^(error|exception)/.test(l));
 const landingOk = (l) =>
   l.activeTab === "GBA" &&
-  l.gbcHidden &&
+  !l.gbcHidden &&
   l.addLabel === "Add a .gba ROM" &&
   l.popHiddenBefore &&
   l.popOpensOnTap &&
@@ -515,6 +543,7 @@ if (
   !toastGone ||
   !landingOk(landing) ||
   !landingOk(landingPhone) ||
+  (gb && (gb.listed !== 1 || gb.system !== "gbc" || gb.width !== 160 || gb.height !== 144 || gb.lit === 0 || !gb.shouldersHidden || !gb.linkHidden)) ||
   !lobby.canStart ||
   !linkHost.linked ||
   !linkGuest.linked ||

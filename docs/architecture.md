@@ -11,7 +11,7 @@ Pipit is split into a pure emulation core and thin front-ends around it.
             │  crates/wasm  crates/cli │   bindings / tooling
             └────────────┬─────────────┘
             ┌────────────▼─────────────┐
-            │  crates/gba (pipit-gba)  │   the GBA
+            │  crates/gba   crates/gbc │   the GBA; the Game Boy (Color)
             └──────────────────────────┘
 ```
 
@@ -55,6 +55,29 @@ CPU's cycle count is accurate without ticking components each cycle.
    milestone (Flash 128K, RTC, DMA-driven audio engine, EEPROM for other titles).
 3. Decomp-built and hacked ROMs. These are tested against mGBA by their authors, so
    where documentation is ambiguous Pipit follows mGBA's behaviour.
+
+## The Game Boy core (`crates/gbc`)
+
+`Gbc` has the same shape of API as `Gba` and the same rules: no I/O, serde save
+states (through `crates/common`, which holds only the state file format the two
+cores share), deterministic. The machine is stepped per CPU M-cycle: every memory
+access ticks the bus once, and the tick advances the timer, the picture, the sound
+and the serial port, so instruction timing falls out of the access pattern.
+
+| Module | Hardware | Notes |
+|--------|----------|-------|
+| `cpu.rs` | SM83 | Every instruction, interrupts with the EI delay and the HALT bug, STOP for the speed switch |
+| `memory.rs` | Bus | Memory map, WRAM banks, I/O dispatch, OAM DMA, general and HBlank DMA, double speed |
+| `cartridge.rs` | Game Pak | MBC1/2/3/5 (MBC30 sizes included), battery RAM, the MBC3 clock with the usual save trailer |
+| `video.rs` | PPU | Modes and STAT dot by dot, lines drawn at the start of their mode 3; colour palettes, attributes, both VRAM banks |
+| `audio.rs` | APU | Two pulse channels, wave, noise, the frame sequencer, stereo at 32768 Hz |
+| `timer.rs`, `joypad.rs`, `serial.rs` | — | DIV/TIMA with the edge quirks; the joypad; a serial port that keeps what test ROMs print |
+
+A colour game runs on a Game Boy Color; a classic game runs on a classic Game Boy
+with its four shades. No boot ROM is used. Tests: Blargg's `cpu_instrs`,
+`instr_timing` and `mem_timing`, both acid2 pictures, and the mooneye acceptance
+tests, of which the ones about where within an instruction an access lands are
+listed as known failures.
 
 ## Front-ends
 

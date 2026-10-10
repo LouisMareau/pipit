@@ -15,6 +15,9 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use pipit_gba::{Gba, Keys, Link, SCREEN_HEIGHT, SCREEN_WIDTH};
 
+mod machine;
+use machine::Machine;
+
 #[derive(Parser)]
 #[command(name = "pipit", version, about = "Headless GBA emulator runner")]
 struct Cli {
@@ -107,38 +110,31 @@ fn main() -> Result<()> {
         } => {
             let rom_data = fs::read(&rom).with_context(|| format!("reading {}", rom.display()))?;
             let bios_data = bios.map(fs::read).transpose().context("reading BIOS")?;
-            let mut gba = Gba::new(rom_data, bios_data);
-            println!("{} [{}] save: {:?}", gba.title(), gba.game_code(), gba.bus.cart.save_type());
+            let mut machine = Machine::open(&rom, rom_data, bios_data);
+            println!("{}", machine.describe());
             if let Some(path) = &save {
                 if let Ok(data) = fs::read(path) {
-                    gba.load_save_data(&data);
+                    machine.load_save_data(&data);
                 }
             }
             if let Some(count) = trace {
                 for _ in 0..trace_skip {
-                    gba.step();
+                    machine.step();
                 }
                 for _ in 0..count {
-                    let r = &gba.cpu.regs;
-                    eprintln!(
-                        "{:08X} {:08X} [{}] r0={:08X} r1={:08X} r2={:08X} r3={:08X} r12={:08X} sp={:08X} lr={:08X} cpsr={:08X}",
-                        gba.cpu.pc(),
-                        gba.cpu.next_opcode(),
-                        if gba.cpu.is_thumb() { "T" } else { "A" },
-                        r[0], r[1], r[2], r[3], r[12], r[13], r[14], gba.cpu.cpsr
-                    );
-                    gba.step();
+                    eprintln!("{}", machine.trace_line());
+                    machine.step();
                 }
             }
             let script = keys.as_deref().map(parse_key_script).transpose()?.unwrap_or_default();
             for frame in 0..frames {
                 if let Some((_, keys)) = script.iter().find(|(f, _)| *f == frame) {
-                    gba.set_keys(*keys);
+                    machine.set_keys(*keys);
                 }
-                gba.run_frame();
+                machine.run_frame();
             }
             if regs {
-                print_registers(&gba);
+                println!("{}", machine.registers());
             }
             for spec in &peek {
                 let (addr, len) = spec.split_once(':').unwrap_or((spec, "4"));
@@ -146,27 +142,28 @@ fn main() -> Result<()> {
                     .context("bad --peek address")?;
                 let len: u32 = len.parse().context("bad --peek length")?;
                 let bytes: Vec<String> =
-                    (0..len).map(|i| format!("{:02X}", gba.bus.load8(addr + i))).collect();
+                    (0..len).map(|i| format!("{:02X}", machine.peek(addr + i))).collect();
                 println!("{addr:08X}: {}", bytes.join(" "));
             }
             if let Some(path) = screenshot {
-                write_png(&path, gba.framebuffer())?;
+                let (width, height) = machine.size();
+                write_png(&path, machine.framebuffer(), width, height)?;
                 println!("wrote {}", path.display());
             }
-            if let (Some(path), Some(data)) = (save, gba.save_data()) {
+            if let (Some(path), Some(data)) = (save, machine.save_data()) {
                 fs::write(&path, data)?;
             }
         }
         Command::Bench { rom, frames } => {
             let rom_data = fs::read(&rom)?;
-            let mut gba = Gba::new(rom_data, None);
+            let mut machine = Machine::open(&rom, rom_data, None);
             let start = Instant::now();
             for _ in 0..frames {
-                gba.run_frame();
+                machine.run_frame();
             }
             let secs = start.elapsed().as_secs_f64();
             let fps = f64::from(frames) / secs;
-            let per_frame = gba.cpu.instructions / u64::from(frames);
+            let per_frame = machine.instructions() / u64::from(frames);
             println!("{per_frame} instructions per frame");
             println!(
                 "{frames} frames in {secs:.2}s = {fps:.0} fps ({:.1}x real time)",
@@ -176,6 +173,13 @@ fn main() -> Result<()> {
         Command::Link { rom, players, frames, save, keys, screenshot, trace_sio, bios } => {
             let roms = if rom.len() == 1 { vec![rom[0].clone(); players] } else { rom };
             anyhow::ensure!((2..=4).contains(&roms.len()), "a link joins two to four consoles");
+            let game_boy = roms.iter().any(|p| {
+                matches!(
+                    p.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(),
+                    Some("gb" | "gbc")
+                )
+            });
+            anyhow::ensure!(!game_boy, "Game Boy games cannot be linked yet");
             let bios_data = bios.map(fs::read).transpose().context("reading BIOS")?;
             let mut nodes = Vec::new();
             for (i, path) in roms.iter().enumerate() {
@@ -211,7 +215,7 @@ fn main() -> Result<()> {
             if let Some(path) = screenshot {
                 for (i, node) in link.nodes().iter().enumerate() {
                     let out = numbered(&path, i + 1);
-                    write_png(&out, node.framebuffer())?;
+                    write_png(&out, node.framebuffer(), SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32)?;
                     println!("wrote {}", out.display());
                 }
             }
@@ -259,28 +263,12 @@ fn parse_key_script(script: &str) -> Result<Vec<(u32, Keys)>> {
     Ok(out)
 }
 
-fn print_registers(gba: &Gba) {
-    let r = &gba.cpu.regs;
-    for (i, v) in r.iter().enumerate() {
-        print!("r{i:<2}={v:08X} ");
-        if i % 4 == 3 {
-            println!();
-        }
-    }
-    println!(
-        "cpsr={:08X} pc={:08X} cycles={}",
-        gba.cpu.cpsr,
-        gba.cpu.pc(),
-        gba.bus.scheduler.now()
-    );
-}
-
-fn write_png(path: &PathBuf, pixels: &[u32]) -> Result<()> {
+fn write_png(path: &PathBuf, pixels: &[u32], width: u32, height: u32) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
     let file = fs::File::create(path)?;
-    let mut encoder = png::Encoder::new(file, SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32);
+    let mut encoder = png::Encoder::new(file, width, height);
     encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;

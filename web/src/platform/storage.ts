@@ -51,7 +51,8 @@ export async function addRom(file: File): Promise<RomEntry> {
   const id = await hash(data);
   const entry: RomEntry = {
     id,
-    name: file.name.replace(/\.gba$/i, ""),
+    name: file.name.replace(/\.(gba|gbc|gb)$/i, ""),
+    system: /\.gbc?$/i.test(file.name) ? "gbc" : "gba",
     title: readHeaderString(data, 0xa0, 12),
     gameCode: readHeaderString(data, 0xac, 4),
     size: data.byteLength,

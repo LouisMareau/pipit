@@ -8,7 +8,7 @@
 // periodic garbage-collection pauses that show up as stutter.)
 
 import init, { Emulator } from "@wasm/pipit_wasm.js";
-import type { FromWorker, LinkLoad, ToWorker } from "../types";
+import type { FromWorker, LinkLoad, System, ToWorker } from "../types";
 
 const SAVE_CHECK_FRAMES = 60;
 /** On a link, how often the state digest is reported for comparison with the partner's. */
@@ -44,7 +44,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   const msg = event.data;
   switch (msg.type) {
     case "load":
-      await load(msg.rom, msg.save, msg.bios, msg.unixSeconds, msg.link);
+      await load(msg.rom, msg.save, msg.bios, msg.unixSeconds, msg.system, msg.link);
       break;
     case "run":
       running = true;
@@ -112,13 +112,23 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   }
 };
 
-async function load(rom: ArrayBuffer, save: ArrayBuffer | null, bios: ArrayBuffer | null, unixSeconds: number, link?: LinkLoad) {
+async function load(
+  rom: ArrayBuffer,
+  save: ArrayBuffer | null,
+  bios: ArrayBuffer | null,
+  unixSeconds: number,
+  system: System,
+  link?: LinkLoad,
+) {
   try {
     if (!memory) {
       const wasm = await init();
       memory = wasm.memory;
     }
     emulator?.free();
+    // Frame buffers are sized for the console; the pool may hold the other size.
+    spareBuffers.length = 0;
+    states.clear();
     const biosBytes = bios ? new Uint8Array(bios) : undefined;
     linked = link !== undefined && link.players > 1;
     if (link && linked) {
@@ -127,14 +137,20 @@ async function load(rom: ArrayBuffer, save: ArrayBuffer | null, bios: ArrayBuffe
         if (data) emulator?.load_player_save_data(i, new Uint8Array(data));
       });
     } else {
-      emulator = new Emulator(new Uint8Array(rom), biosBytes);
+      emulator = new Emulator(new Uint8Array(rom), biosBytes, system === "gbc" ? 1 : 0);
       if (save) emulator.load_save_data(new Uint8Array(save));
     }
     emulator.set_time(unixSeconds);
     emulator.set_keys(keys);
     emulator.set_color_correction(colorMode, colorStrength);
     frameCounter = 0;
-    post({ type: "loaded", title: emulator.title(), gameCode: emulator.game_code() });
+    post({
+      type: "loaded",
+      title: emulator.title(),
+      gameCode: emulator.game_code(),
+      width: emulator.width(),
+      height: emulator.height(),
+    });
   } catch (error) {
     post({ type: "error", message: `Could not start the game: ${String(error)}` });
   }

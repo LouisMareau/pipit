@@ -1,6 +1,6 @@
 # Pipit
 
-A clean, free Game Boy Advance emulator that runs in the browser, on your phone and on
+A clean, free Game Boy Advance and Game Boy Color emulator that runs in the browser, on your phone and on
 the desktop — from one codebase.
 
 - **Accurate.** A from-scratch ARM7TDMI core, cycle-counted memory bus, scanline video

@@ -43,6 +43,8 @@ export class LayoutEditor {
   private boxes = new Map<ControlId, HTMLDivElement>();
   /** Called after every apply, so the app can refit the screen canvas. */
   onApplied: () => void = () => {};
+  /** Width ÷ height of the console's picture (3:2 for the Advance, 10:9 for the Game Boy). */
+  private screenAspect = 1.5;
   onDone: (layout: CustomLayout) => void = () => {};
   onCancel: () => void = () => {};
   onReset: () => void = () => {};
@@ -79,6 +81,14 @@ export class LayoutEditor {
 
   get isOpen(): boolean {
     return this.layout !== null;
+  }
+
+  setScreenAspect(aspect: number) {
+    this.screenAspect = aspect;
+  }
+
+  private aspectOf(id: ControlId): number | undefined {
+    return id === "screen" ? this.screenAspect : ASPECT[id];
   }
 
   private element(id: ControlId, selectors = SELECTORS): HTMLElement | null {
@@ -214,7 +224,7 @@ export class LayoutEditor {
         b.x = clamp(start.x + dx, 0, 1 - b.w);
         b.y = clamp(start.y + dy, 0, 1 - b.h);
       } else {
-        const aspect = ASPECT[id];
+        const aspect = this.aspectOf(id);
         let w = Math.max(MIN_PX / W, start.w + dx);
         let h = aspect ? (w * W) / aspect / H : Math.max(MIN_PX / H, start.h + dy);
         w = Math.min(w, 1 - b.x);

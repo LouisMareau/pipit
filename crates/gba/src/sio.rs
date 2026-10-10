@@ -49,7 +49,7 @@ pub enum Stop {
 #[derive(Serialize, Deserialize)]
 pub struct Sio {
     /// Raw registers. Multi-play mode overlays its live bits on SIOCNT when read.
-    #[serde(with = "crate::snapshot::array")]
+    #[serde(with = "pipit_common::snapshot::array")]
     regs: [u16; 0x30],
     /// A transfer is in progress (SIOCNT bit 7).
     busy: bool,

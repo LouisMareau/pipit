@@ -8,10 +8,12 @@ use serde::de::{Error as _, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
-const MAGIC: [u8; 4] = *b"PIPT";
-/// Bumped whenever the serialized layout changes; older states are refused.
-/// 2: the serial port gained state (link cable).
-const VERSION: u32 = 2;
+/// A core's file format: its magic, and a version bumped whenever the
+/// serialized layout changes (older states are refused).
+pub struct Format {
+    pub magic: [u8; 4],
+    pub version: u32,
+}
 
 #[derive(Serialize, Deserialize)]
 struct Header {
@@ -48,20 +50,25 @@ impl fmt::Display for StateError {
 
 impl std::error::Error for StateError {}
 
-pub fn write_into<T: Serialize>(game_code: &str, state: &T, out: &mut Vec<u8>) {
-    let header = Header { magic: MAGIC, version: VERSION, game_code: game_code.to_string() };
+pub fn write_into<T: Serialize>(format: &Format, game_code: &str, state: &T, out: &mut Vec<u8>) {
+    let header =
+        Header { magic: format.magic, version: format.version, game_code: game_code.to_string() };
     out.clear();
     bincode::serialize_into(&mut *out, &header).expect("header serializes");
     bincode::serialize_into(&mut *out, state).expect("state serializes");
 }
 
-pub fn read<T: for<'de> Deserialize<'de>>(game_code: &str, data: &[u8]) -> Result<T, StateError> {
-    if data.len() < 4 || data[..4] != MAGIC {
+pub fn read<T: for<'de> Deserialize<'de>>(
+    format: &Format,
+    game_code: &str,
+    data: &[u8],
+) -> Result<T, StateError> {
+    if data.len() < 4 || data[..4] != format.magic {
         return Err(StateError::NotAState);
     }
     let mut cursor = std::io::Cursor::new(data);
     let header: Header = bincode::deserialize_from(&mut cursor).map_err(|_| StateError::Corrupt)?;
-    if header.version != VERSION {
+    if header.version != format.version {
         return Err(StateError::UnsupportedVersion(header.version));
     }
     if header.game_code != game_code {

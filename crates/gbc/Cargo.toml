@@ -1,6 +1,6 @@
 [package]
-name = "pipit-gba"
-description = "Game Boy Advance emulation core: no I/O, no platform code"
+name = "pipit-gbc"
+description = "Game Boy / Game Boy Color emulation core: no I/O, no platform code"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,5 +11,3 @@ authors.workspace = true
 pipit-common = { workspace = true }
 serde = { workspace = true }
 bincode = { workspace = true }
-
-[dev-dependencies]

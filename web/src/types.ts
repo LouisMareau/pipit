@@ -28,8 +28,21 @@ export interface LinkLoad {
   saves: (ArrayBuffer | null)[];
 }
 
+/** Which console a game is for; `.gb` and `.gbc` files are Game Boy games. */
+export type System = "gba" | "gbc";
+
+export const SYSTEM_NAMES: Record<System, string> = { gba: "GBA", gbc: "GBC" };
+
 export type ToWorker =
-  | { type: "load"; rom: ArrayBuffer; save: ArrayBuffer | null; bios: ArrayBuffer | null; unixSeconds: number; link?: LinkLoad }
+  | {
+      type: "load";
+      rom: ArrayBuffer;
+      save: ArrayBuffer | null;
+      bios: ArrayBuffer | null;
+      unixSeconds: number;
+      system: System;
+      link?: LinkLoad;
+    }
   | { type: "run" }
   | { type: "pause" }
   /**
@@ -57,7 +70,7 @@ export type ToWorker =
   | { type: "returnFrame"; pixels: ArrayBuffer };
 
 export type FromWorker =
-  | { type: "loaded"; title: string; gameCode: string }
+  | { type: "loaded"; title: string; gameCode: string; width: number; height: number }
   /** `maxGapMs`: the longest pause between frames in the last second (stutter diagnostics). */
   | { type: "frame"; pixels: ArrayBuffer; audio: ArrayBuffer; fps: number; maxGapMs: number }
   /** On a link: a digest of every console's state after `frame` frames (see `netplay.ts`). */
@@ -69,6 +82,8 @@ export type FromWorker =
 export interface RomEntry {
   id: string;
   name: string;
+  /** Absent in entries from before the Game Boy core: those are Advance games. */
+  system?: System;
   title: string;
   gameCode: string;
   size: number;

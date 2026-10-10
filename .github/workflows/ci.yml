@@ -55,7 +55,7 @@ jobs:
         run: |
           (cd web && npx vite preview --port 4173 --strictPort &)
           sleep 3
-          node scripts/smoke-web.mjs tests/roms/gba-tests/ppu/hello.gba "http://localhost:4173/?link=local" build/smoke.png
+          node scripts/smoke-web.mjs tests/roms/gba-tests/ppu/hello.gba "http://localhost:4173/?link=local" build/smoke.png tests/roms/acid2/cgb-acid2.gbc
           node scripts/smoke-web.mjs tests/roms/gba-tests/ppu/hello.gba "http://localhost:4173/?link=local&lag=0:120" build/smoke-lag.png
       - uses: actions/upload-artifact@v4
         with:

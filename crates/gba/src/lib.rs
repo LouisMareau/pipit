@@ -25,7 +25,7 @@ pub mod link;
 pub mod memory;
 pub mod scheduler;
 pub mod sio;
-pub mod snapshot;
+pub use pipit_common::snapshot;
 pub mod timers;
 pub mod video;
 
@@ -45,6 +45,9 @@ pub const SCREEN_HEIGHT: usize = 160;
 pub const CLOCK_HZ: u32 = 16_777_216;
 /// Cycles per frame: 228 scanlines × 1232 cycles.
 pub const CYCLES_PER_FRAME: u32 = 280_896;
+
+/// Save-state file format. 2: the serial port gained state (link cable).
+const STATE_FORMAT: snapshot::Format = snapshot::Format { magic: *b"PIPT", version: 2 };
 
 /// FNV-1a, 64-bit.
 pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
@@ -158,7 +161,7 @@ impl Gba {
     /// Like `save_state`, but reuses `out` (cleared first) to avoid allocating —
     /// front-ends snapshot many times per second for rewind.
     pub fn save_state_into(&self, out: &mut Vec<u8>) {
-        snapshot::write_into(&self.game_code(), self, out);
+        snapshot::write_into(&STATE_FORMAT, &self.game_code(), self, out);
     }
 
     /// A hash of the whole machine state, to check that two emulations agree.
@@ -170,7 +173,7 @@ impl Gba {
 
     /// Restores a state produced by `save_state` for the same game.
     pub fn load_state(&mut self, data: &[u8]) -> Result<(), StateError> {
-        let mut restored: Gba = snapshot::read(&self.game_code(), data)?;
+        let mut restored: Gba = snapshot::read(&STATE_FORMAT, &self.game_code(), data)?;
         restored.bus.cart.take_rom_from(&mut self.bus.cart);
         restored.bus.bios.take_image_from(&mut self.bus.bios);
         *self = restored;
