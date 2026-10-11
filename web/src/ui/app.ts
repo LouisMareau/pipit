@@ -19,6 +19,7 @@ import { LayoutEditor } from "./layout-editor";
 import { Library } from "./library";
 import { LinkDialog } from "./link-dialog";
 import { Screen } from "./screen";
+import { SideScreens } from "./side-screens";
 import { TouchControls } from "./touch-controls";
 
 /** `window.pipit`, for the end-to-end scripts in `scripts/`. */
@@ -62,6 +63,7 @@ export class App {
   private library = new Library();
   private player: HTMLDivElement;
   private screen: Screen;
+  private sideScreens = new SideScreens();
   private touch = new TouchControls();
   private controller = new ControllerToggle();
   private controllerSettings = new ControllerSettings();
@@ -142,6 +144,7 @@ export class App {
         <button class="btn" data-action="link">Play together…</button>
         <button class="btn hidden" data-action="leave-link">Leave the session</button>
         <label class="row link-view hidden"><span>Watch</span><select data-view></select></label>
+        <label class="row link-side"><input type="checkbox" data-setting="sideScreens" /><span>Show the other players&#8217; screens beside yours</span></label>
         <h4>Keyboard</h4>
         <button class="btn" data-action="keyboard">Change key bindings…</button>
         <h4>Battery save</h4>
@@ -169,7 +172,7 @@ export class App {
         <button class="btn" data-action="fullscreen">Fullscreen</button>
       </div>`;
     this.screen = new Screen();
-    this.player.querySelector(".screen-box")!.append(this.screen.element);
+    this.player.querySelector(".screen-box")!.append(this.screen.element, this.sideScreens.element);
     this.player.querySelector(".toolbar-controller")!.append(this.controller.element);
     this.stage.append(this.touch.element);
     this.layoutEditor = new LayoutEditor(this.stage);
@@ -281,9 +284,13 @@ export class App {
     this.emulator.on("hash", (frame, hash) => this.session?.reportHash(frame, hash));
     const fpsLabel = this.player.querySelector<HTMLElement>(".toolbar-fps")!;
     let lastFpsText = "";
-    this.emulator.on("frame", (pixels, audio, fps, maxGapMs) => {
+    this.emulator.on("frame", (pixels, audio, fps, maxGapMs, sides) => {
       this.screen.draw(pixels);
       this.emulator.returnFrame(pixels);
+      for (const side of sides ?? []) {
+        this.sideScreens.draw(side.player, side.pixels);
+        this.emulator.returnFrame(side.pixels);
+      }
       this.audio.push(new Int16Array(audio));
       const text = `${fps} fps`;
       if (text !== lastFpsText) {
@@ -444,6 +451,7 @@ export class App {
     this.player.querySelector<HTMLSelectElement>("[data-view]")!.addEventListener("change", (e) => {
       const player = Number((e.target as HTMLSelectElement).value);
       this.emulator.setView(player);
+      this.sideScreens.setPlayers(this.sessionPlayers, player);
       this.toast(player === (this.session?.local ?? 0) ? "Back to your screen" : `Watching player ${player + 1}`, { brief: true });
     });
     this.linkDialog.onHost = () => void this.startSession("host", generateCode());
@@ -561,6 +569,8 @@ export class App {
     );
     view.value = String(start.link.local);
     view.closest(".link-view")!.classList.remove("hidden");
+    this.sideScreens.setPlayers(start.link.players, start.link.local);
+    this.applySideScreens();
     this.toast(`Linked: ${start.link.players} players, you are player ${start.link.local + 1}; keys land ${start.delay} frames later`);
   }
 
@@ -605,6 +615,9 @@ export class App {
     this.player.querySelector('[data-action="link"]')!.classList.remove("hidden");
     this.player.querySelector('[data-action="leave-link"]')!.classList.add("hidden");
     this.player.querySelector(".link-view")!.classList.add("hidden");
+    this.sideScreens.clear();
+    this.emulator.setSideScreens(false);
+    this.screen.fit();
   }
 
   /** Shows a notice card; a `brief` one (controller events) stays about a second. */
@@ -799,6 +812,15 @@ export class App {
     this.screen.setIntegerScale(this.settings.integerScale);
     this.applyKeyboard();
     this.applyLayout();
+    this.applySideScreens();
+  }
+
+  /** Partners' screens beside the player's own: when playing together and the option is on. */
+  private applySideScreens() {
+    const on = this.settings.sideScreens && this.player.classList.contains("linked");
+    this.sideScreens.show(on);
+    this.emulator.setSideScreens(on);
+    this.screen.fit();
   }
 
   /** Resolves the touch layout for the current orientation and shows the controls. */

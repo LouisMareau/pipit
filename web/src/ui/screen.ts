@@ -53,7 +53,11 @@ export class Screen {
   fit() {
     const parent = this.element.parentElement;
     if (!parent) return;
-    const { clientWidth: w, clientHeight: h } = parent;
+    // A column of partners' screens beside this one takes its share of the width.
+    const side = parent.querySelector<HTMLElement>(".side-screens");
+    const sideWidth = side && !side.classList.contains("hidden") ? side.offsetWidth + 8 : 0;
+    const { clientHeight: h } = parent;
+    const w = parent.clientWidth - sideWidth;
     let scale = Math.min(w / this.width, h / this.height);
     if (this.integerScale) scale = Math.max(1, Math.floor(scale));
     this.element.style.width = `${Math.floor(this.width * scale)}px`;

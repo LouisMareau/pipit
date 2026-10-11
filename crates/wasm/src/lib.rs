@@ -13,6 +13,20 @@ use wasm_bindgen::prelude::*;
 /// `system` values the front-end passes: 0 is a Game Boy Advance.
 const SYSTEM_GBC: u8 = 1;
 
+/// 0xFFRRGGBB pixels to RGBA bytes, through the colour table when there is one.
+fn convert(framebuffer: &[u32], rgba: &mut [u8], lut: Option<&[[u8; 4]]>) {
+    let (pixels, _) = rgba.as_chunks_mut::<4>();
+    if let Some(lut) = lut {
+        for (px, out) in framebuffer.iter().zip(pixels) {
+            *out = lut[pipit_gbc::color::lut_index(*px)];
+        }
+    } else {
+        for (px, out) in framebuffer.iter().zip(pixels) {
+            *out = [(px >> 16) as u8, (px >> 8) as u8, *px as u8, 0xFF];
+        }
+    }
+}
+
 /// One long-lived object either way: the size difference does not matter.
 #[allow(clippy::large_enum_variant)]
 enum Core {
@@ -29,6 +43,8 @@ pub struct Emulator {
     width: usize,
     height: usize,
     rgba: Vec<u8>,
+    /// A second picture, of whichever console `render_side` was last asked for.
+    side: Vec<u8>,
     /// Colour correction table, when the LCD look is on.
     color_lut: Option<Vec<[u8; 4]>>,
 }
@@ -49,6 +65,7 @@ impl Emulator {
                 width,
                 height,
                 rgba: vec![0; width * height * 4],
+                side: Vec::new(),
                 color_lut: None,
             }
         } else {
@@ -68,6 +85,7 @@ impl Emulator {
             width,
             height,
             rgba: vec![0; width * height * 4],
+            side: Vec::new(),
             color_lut: None,
         }
     }
@@ -123,16 +141,28 @@ impl Emulator {
             Core::Gba(link) => link.nodes()[self.view].framebuffer(),
             Core::Gbc(gbc) => gbc.framebuffer(),
         };
-        let (pixels, _) = self.rgba.as_chunks_mut::<4>();
-        if let Some(lut) = &self.color_lut {
-            for (px, out) in framebuffer.iter().zip(pixels) {
-                *out = lut[pipit_gbc::color::lut_index(*px)];
-            }
-        } else {
-            for (px, out) in framebuffer.iter().zip(pixels) {
-                *out = [(px >> 16) as u8, (px >> 8) as u8, *px as u8, 0xFF];
-            }
+        convert(framebuffer, &mut self.rgba, self.color_lut.as_deref());
+    }
+
+    /// Converts another console's picture into the side buffer (`side_ptr`), for
+    /// showing partners' screens beside the player's own.
+    pub fn render_side(&mut self, player: usize) {
+        if self.side.len() != self.rgba.len() {
+            self.side = vec![0; self.rgba.len()];
         }
+        let framebuffer: &[u32] = match &self.core {
+            Core::Gba(link) => link.nodes()[player.min(link.nodes().len() - 1)].framebuffer(),
+            Core::Gbc(gbc) => gbc.framebuffer(),
+        };
+        convert(framebuffer, &mut self.side, self.color_lut.as_deref());
+    }
+
+    pub fn side_ptr(&self) -> *const u8 {
+        self.side.as_ptr()
+    }
+
+    pub fn side_len(&self) -> usize {
+        self.side.len()
     }
 
     /// 0 = raw colours, 1 = the LCD look of the game's console at `strength` (0.0-1.0).

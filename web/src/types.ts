@@ -61,6 +61,8 @@ export type ToWorker =
   | { type: "confirm"; frame: number }
   /** Show and play another console of the link. */
   | { type: "view"; player: number }
+  /** Also send the other consoles' pictures with every frame (shown beside the player's). */
+  | { type: "sideScreens"; enabled: boolean }
   | { type: "keys"; keys: number }
   | { type: "fastForward"; enabled: boolean }
   | { type: "colors"; mode: number; strength: number }
@@ -72,7 +74,15 @@ export type ToWorker =
 export type FromWorker =
   | { type: "loaded"; title: string; gameCode: string; width: number; height: number }
   /** `maxGapMs`: the longest pause between frames in the last second (stutter diagnostics). */
-  | { type: "frame"; pixels: ArrayBuffer; audio: ArrayBuffer; fps: number; maxGapMs: number }
+  | {
+      type: "frame";
+      pixels: ArrayBuffer;
+      audio: ArrayBuffer;
+      fps: number;
+      maxGapMs: number;
+      /** On a link with side screens on: the other consoles' pictures. */
+      sides?: { player: number; pixels: ArrayBuffer }[];
+    }
   /** On a link: a digest of every console's state after `frame` frames (see `netplay.ts`). */
   | { type: "hash"; frame: number; hash: number }
   | { type: "save"; data: ArrayBuffer }
@@ -205,6 +215,8 @@ export interface Settings {
   colorCorrection: ColorCorrection;
   /** How far towards the LCD look, 0-100. */
   colorStrength: number;
+  /** Playing together: show the other players' screens beside your own. */
+  sideScreens: boolean;
   /** Button mappings, keyed by controller id. */
   controllerMappings: Record<string, ControllerMapping>;
   keyboardMapping: KeyboardMapping;
@@ -234,6 +246,7 @@ export const DEFAULT_SETTINGS: Settings = {
   touchLayouts: {},
   colorCorrection: "gba",
   colorStrength: 100,
+  sideScreens: false,
   controllerMappings: {},
   keyboardMapping: DEFAULT_KEYBOARD,
   connection: DEFAULT_CONNECTION,

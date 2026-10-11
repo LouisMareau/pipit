@@ -3,7 +3,7 @@
 import type { FromWorker, LinkLoad, System, ToWorker } from "../types";
 
 type Handlers = {
-  frame: (pixels: ArrayBuffer, audio: ArrayBuffer, fps: number, maxGapMs: number) => void;
+  frame: (pixels: ArrayBuffer, audio: ArrayBuffer, fps: number, maxGapMs: number, sides?: { player: number; pixels: ArrayBuffer }[]) => void;
   loaded: (title: string, gameCode: string, width: number, height: number) => void;
   save: (data: ArrayBuffer) => void;
   state: (slot: number, data: ArrayBuffer) => void;
@@ -22,7 +22,7 @@ export class EmulatorClient {
       const msg = event.data;
       switch (msg.type) {
         case "frame":
-          this.handlers.frame?.(msg.pixels, msg.audio, msg.fps, msg.maxGapMs);
+          this.handlers.frame?.(msg.pixels, msg.audio, msg.fps, msg.maxGapMs, msg.sides);
           break;
         case "loaded":
           this.handlers.loaded?.(msg.title, msg.gameCode, msg.width, msg.height);
@@ -104,6 +104,11 @@ export class EmulatorClient {
   /** Shows and plays another console of the link. */
   setView(player: number) {
     this.send({ type: "view", player });
+  }
+
+  /** Whether the other consoles' pictures come with every frame. */
+  setSideScreens(enabled: boolean) {
+    this.send({ type: "sideScreens", enabled });
   }
 
   /** 0 = raw colours, 1 = GBA LCD look at `strength` 0-1. */

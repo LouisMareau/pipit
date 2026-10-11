@@ -1420,3 +1420,45 @@ body[data-chrome="drawer"] .toast {
 .player[data-system="gbc"] [data-action="link"] {
   display: none;
 }
+
+/* Partners' screens beside the player's own (a session option). */
+.side-screens {
+  flex: none;
+  align-self: center;
+  width: 22%;
+  max-width: 240px;
+  margin-left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  max-height: 100%;
+}
+
+.side-screens figure {
+  margin: 0;
+}
+
+.side-screens canvas {
+  display: block;
+  width: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #000;
+  border-radius: 4px;
+}
+
+.side-screens figcaption {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.menu .link-side {
+  display: none;
+}
+
+.player.linked .menu .link-side {
+  display: flex;
+}

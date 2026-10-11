@@ -22,6 +22,9 @@ let fastForwardTimer: ReturnType<typeof setTimeout> | null = null;
 let keys = 0;
 /** Several consoles on a link: keys arrive with each frame request, fast-forward is off. */
 let linked = false;
+/** The console shown, and whether the others' pictures go out with each frame too. */
+let view = 0;
+let sideScreens = false;
 /** Rollback: states kept before frames that ran on guessed keys, by frame number. */
 const states = new Map<number, Uint8Array>();
 const MAX_STATES = 16;
@@ -68,8 +71,12 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       for (const frame of states.keys()) if (frame <= msg.frame) states.delete(frame);
       break;
     case "view":
+      view = msg.player;
       emulator?.set_view(msg.player);
       postFrame();
+      break;
+    case "sideScreens":
+      sideScreens = msg.enabled;
       break;
     case "keys":
       keys = msg.keys;
@@ -107,7 +114,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       }
       break;
     case "returnFrame":
-      if (spareBuffers.length < 3) spareBuffers.push(msg.pixels);
+      if (spareBuffers.length < 8) spareBuffers.push(msg.pixels);
       break;
   }
 };
@@ -129,6 +136,7 @@ async function load(
     // Frame buffers are sized for the console; the pool may hold the other size.
     spareBuffers.length = 0;
     states.clear();
+    view = link?.local ?? 0;
     const biosBytes = bios ? new Uint8Array(bios) : undefined;
     linked = link !== undefined && link.players > 1;
     if (link && linked) {
@@ -236,11 +244,26 @@ function rollback(toFrame: number, inputs: number[][], snapshots: boolean[]) {
 function postFrame() {
   if (!emulator || !memory) return;
   const len = emulator.frame_len();
-  const src = new Uint8Array(memory.buffer, emulator.frame_ptr(), len);
-  const pixels = spareBuffers.pop() ?? new ArrayBuffer(len);
-  new Uint8Array(pixels).set(src);
+  const copy = (ptr: number) => {
+    const buffer = spareBuffers.pop() ?? new ArrayBuffer(len);
+    new Uint8Array(buffer).set(new Uint8Array(memory!.buffer, ptr, len));
+    return buffer;
+  };
+  const pixels = copy(emulator.frame_ptr());
   const audio = emulator.drain_audio().buffer as ArrayBuffer;
-  post({ type: "frame", pixels, audio, fps, maxGapMs }, [pixels, audio]);
+  const transfer: Transferable[] = [pixels, audio];
+  let sides: { player: number; pixels: ArrayBuffer }[] | undefined;
+  if (linked && sideScreens) {
+    sides = [];
+    for (let player = 0; player < emulator.players(); player++) {
+      if (player === view) continue;
+      emulator.render_side(player);
+      const side = copy(emulator.side_ptr());
+      sides.push({ player, pixels: side });
+      transfer.push(side);
+    }
+  }
+  post({ type: "frame", pixels, audio, fps, maxGapMs, sides }, transfer);
 }
 
 function sendSave() {

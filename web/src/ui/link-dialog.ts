@@ -27,6 +27,11 @@ export class LinkDialog {
           Trade and battle as with a link cable, over the internet, with up to four players.
           Everyone needs the same ROM, and the game restarts for all from your saves, so save first.
         </p>
+        <p class="muted small">
+          In Pokémon Emerald, FireRed and LeafGreen the cable club is the <strong>right-hand</strong>
+          counter upstairs in a Pokémon Center; the other two need the Wireless Adapter, which is
+          not emulated.
+        </p>
         <section class="link-section">
           <h3>Host</h3>
           <div class="link-row">

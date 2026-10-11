@@ -274,6 +274,24 @@ await watch(1);
 await sleep(1000);
 const whileWatching = await linkState();
 await watch(0);
+// Side screens: the other two consoles drawn beside the host's own.
+const sideScreens = (on) =>
+  evaluate(`(() => { const cb = document.querySelector('[data-setting=sideScreens]'); cb.checked = ${on}; cb.dispatchEvent(new Event('input')); return cb.checked; })()`);
+await sideScreens(true);
+await sleep(1200);
+const sides = await evaluate(`(() => {
+  const canvases = Array.from(document.querySelectorAll('.side-screens canvas'));
+  const lit = canvases.map((c) => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] | d[i + 1] | d[i + 2]) n++; return n; });
+  const main = document.querySelector('.screen').getBoundingClientRect();
+  const column = document.querySelector('.side-screens').getBoundingClientRect();
+  return { count: canvases.length, lit, shown: getComputedStyle(document.querySelector('.side-screens')).display !== 'none', overlap: main.right > column.left + 1 };
+})()`);
+if (process.env.PIPIT_SMOKE_SIDE_SHOT) {
+  const s = await send("Page.captureScreenshot", { format: "png" });
+  writeFileSync(process.env.PIPIT_SMOKE_SIDE_SHOT, Buffer.from(s.data, "base64"));
+}
+await sideScreens(false);
+console.log(`side screens: ${JSON.stringify(sides)}`);
 const laggy = /[?&]lag=/.test(url);
 console.log(`watching player 2: frame ${whileWatching.frame} (${whileWatching.linked ? "linked" : "not linked"}); ${laggy ? `lagged run: delay ${linkHost.delay} → ${linkAfterKeys.delay}, rollbacks ${linkAfterKeys.rollbacks}` : "no lag"}`);
 // One guest leaves: the session is over for everyone.
@@ -556,6 +574,10 @@ if (
   /Session over/.test(linkHost.toast) ||
   !linkAfterKeys.linked ||
   !whileWatching.linked ||
+  !sides.shown ||
+  sides.count !== 2 ||
+  sides.lit.some((n) => n === 0) ||
+  sides.overlap ||
   whileWatching.frame <= linkAfterKeys.frame ||
   (laggy && (linkAfterKeys.delay <= linkHost.delay || linkAfterKeys.rollbacks < 1)) ||
   !hostAfterLeave.library ||

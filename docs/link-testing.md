@@ -73,3 +73,11 @@ With `&lag=0:120` the local channel delays every message by 120 ms after a
 connection's first seven seconds, which makes the host raise the delay and
 forces guessed keys and rollbacks; the test asserts both happened. The trade
 script accepts the same URL, so the Emerald trade can be run with lag too.
+
+## Where the cable club is
+
+In Emerald, FireRed and LeafGreen only the **right-hand** counter upstairs in a
+Pokémon Center runs the cable club (Trade Center, Colosseum, Record Corner); the
+other two attendants ask for the Wireless Adapter, which is not emulated, and say
+it is not connected. Ruby and Sapphire have a single cable counter. The Pokédex
+and, for trading, at least two Pokémon are needed; no badge is.
