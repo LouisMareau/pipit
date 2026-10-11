@@ -247,6 +247,8 @@ const lobby = await evaluate(
   "({ players: document.querySelector('.link-players').textContent, canStart: !document.querySelector('[data-action=start]').disabled })",
 );
 console.log(`lobby: ${JSON.stringify(lobby)}`);
+// The host picks the Wireless Adapter: the choice must reach every console.
+await evaluate("document.querySelector('[data-link=mode]').value = 'wireless'; true");
 await evaluate("document.querySelector('[data-action=start]').click(); true");
 await sleep(4500);
 const linkState = (page = { evaluate }) =>
@@ -595,7 +597,8 @@ if (
   linkGuest.waiting ||
   linkGuest2.waiting ||
   !linkHost.badge ||
-  !/3 players/.test(linkHost.badgeText) ||
+  !/3 players · wireless/.test(linkHost.badgeText) ||
+  !/wireless/.test(linkGuest2.badgeText) ||
   /Session over/.test(linkHost.toast) ||
   !linkAfterKeys.linked ||
   !whileWatching.linked ||

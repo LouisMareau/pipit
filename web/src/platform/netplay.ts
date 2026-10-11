@@ -23,7 +23,15 @@ export type LinkMessage =
   | { type: "hello"; romHash: string; save: ArrayBuffer | null }
   | { type: "refuse"; reason: string }
   | { type: "lobby"; players: number }
-  | { type: "welcome"; local: number; players: number; saves: (ArrayBuffer | null)[]; delay: number; epoch: number }
+  | {
+      type: "welcome";
+      local: number;
+      players: number;
+      saves: (ArrayBuffer | null)[];
+      delay: number;
+      epoch: number;
+      wireless?: boolean;
+    }
   | { type: "input"; player: number; frame: number; keys: number }
   | { type: "hash"; frame: number; hash: number }
   | { type: "ping"; t: number }
@@ -357,6 +365,8 @@ export class LinkSession {
 
   /** The most players this game allows (a Game Boy cable joins two). */
   private maxPlayers = MAX_PLAYERS;
+  /** Host: join the consoles with Wireless Adapters rather than a cable (set before `start`). */
+  wireless = false;
 
   /** Hosts: guests arriving through `listener` join the lobby until `start()`. */
   static host(listener: Listener, romHash: string, save: ArrayBuffer | null, maxPlayers = MAX_PLAYERS): LinkSession {
@@ -499,9 +509,17 @@ export class LinkSession {
     const epoch = Math.floor(Date.now() / 1000);
     const saves = [this.save, ...ready.map((g) => g.save)];
     for (const guest of ready) {
-      guest.transport.send({ type: "welcome", local: guest.player, players: this.players, saves, delay: this.delay, epoch });
+      guest.transport.send({
+        type: "welcome",
+        local: guest.player,
+        players: this.players,
+        saves,
+        delay: this.delay,
+        epoch,
+        wireless: this.wireless,
+      });
     }
-    this.begin({ link: { players: this.players, local: 0, saves }, epoch, delay: this.delay });
+    this.begin({ link: { players: this.players, local: 0, saves, wireless: this.wireless }, epoch, delay: this.delay });
   }
 
   // -- guest side -------------------------------------------------------------
@@ -518,7 +536,12 @@ export class LinkSession {
         this.local = message.local;
         this.players = message.players;
         this.delay = message.delay;
-        this.begin({ link: { players: message.players, local: message.local, saves: message.saves }, epoch: message.epoch, delay: message.delay });
+        this.wireless = message.wireless === true;
+        this.begin({
+          link: { players: message.players, local: message.local, saves: message.saves, wireless: this.wireless },
+          epoch: message.epoch,
+          delay: message.delay,
+        });
         break;
       case "refuse":
         this.end(`The host said no: ${message.reason}`);

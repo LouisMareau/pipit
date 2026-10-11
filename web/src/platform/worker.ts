@@ -140,7 +140,14 @@ async function load(
     const biosBytes = bios ? new Uint8Array(bios) : undefined;
     linked = link !== undefined && link.players > 1;
     if (link && linked) {
-      emulator = Emulator.linked(new Uint8Array(rom), link.players, link.local, biosBytes, system === "gbc" ? 1 : 0);
+      emulator = Emulator.linked(
+        new Uint8Array(rom),
+        link.players,
+        link.local,
+        biosBytes,
+        system === "gbc" ? 1 : 0,
+        link.wireless === true,
+      );
       link.saves.forEach((data, i) => {
         if (data) emulator?.load_player_save_data(i, new Uint8Array(data));
       });

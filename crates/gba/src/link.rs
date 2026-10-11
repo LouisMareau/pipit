@@ -1,11 +1,13 @@
-//! A link cable: up to four consoles run in lockstep, exchanging multi-play words.
+//! A link cable or a set of Wireless Adapters: up to four consoles run in
+//! lockstep, exchanging multi-play words or adapter commands.
 //!
-//! Node 0 is the parent, the console that starts every transfer; the others are
-//! children in cable order. The parent runs first. Whenever its serial port needs
-//! the cable (a mode change, a transfer starting or ending) the run loop hands
-//! control back here, the children are run up to the parent's clock, and every
-//! port is updated together. Between those moments the children trail the parent
-//! by at most one instruction, which is far closer than any game can tell.
+//! With a cable, node 0 is the parent, the console that starts every transfer;
+//! the others are children in cable order. Node 0 always runs first. Whenever a
+//! serial port needs the link (a mode change, a transfer starting or ending, an
+//! adapter command) the run loop hands control back here, the other consoles are
+//! run up to node 0's clock, and every port is updated together. Between those
+//! moments the others trail node 0 by at most one instruction, which is far
+//! closer than any game can tell. The adapters' side lives in [`crate::wireless`].
 //!
 //! This is the in-process link, for one machine: headless tests and, later, local
 //! multiplayer. Play over a network will carry the same words with a delay.
@@ -26,12 +28,16 @@ struct LinkState {
 pub const MAX_NODES: usize = 4;
 
 pub struct Link {
-    nodes: Vec<Gba>,
+    pub(crate) nodes: Vec<Gba>,
     /// The words latched when the current transfer started, one per slot.
     latched: Option<[u16; 4]>,
     /// Words of every transfer completed since the last `take_transfers`.
-    log: Vec<[u16; 4]>,
+    transfer_log: Vec<[u16; 4]>,
     transfers: u64,
+    /// The consoles carry Wireless Adapters rather than a cable.
+    wireless: bool,
+    /// Adapter traffic, while tracing (see `set_trace`).
+    pub(crate) log: Option<Vec<String>>,
 }
 
 impl Link {
@@ -42,12 +48,58 @@ impl Link {
     pub fn new(nodes: Vec<Gba>) -> Self {
         assert!((1..=MAX_NODES).contains(&nodes.len()), "a link cable joins one to four consoles");
         let count = nodes.len() as u8;
-        let mut link = Self { nodes, latched: None, log: Vec::new(), transfers: 0 };
+        let mut link = Self::bare(nodes);
         for (i, node) in link.nodes.iter_mut().enumerate() {
             node.bus.sio.attach(i as u8, count);
         }
         link.update_ready();
         link
+    }
+
+    /// Gives every console a Wireless Adapter instead of a cable; any of them can
+    /// host. A single console is fine too (an adapter with nobody to talk to).
+    ///
+    /// # Panics
+    /// With fewer than one or more than four consoles.
+    pub fn wireless(nodes: Vec<Gba>) -> Self {
+        assert!(
+            (1..=MAX_NODES).contains(&nodes.len()),
+            "a wireless link joins one to four consoles"
+        );
+        let mut link = Self::bare(nodes);
+        link.wireless = true;
+        for (i, node) in link.nodes.iter_mut().enumerate() {
+            node.bus.sio.attach_adapter(crate::wireless::device_id(i));
+        }
+        let bus = &mut link.nodes[0].bus;
+        bus.sio.start_ticks(&mut bus.scheduler);
+        link
+    }
+
+    fn bare(nodes: Vec<Gba>) -> Self {
+        Self {
+            nodes,
+            latched: None,
+            transfer_log: Vec::new(),
+            transfers: 0,
+            wireless: false,
+            log: None,
+        }
+    }
+
+    /// Whether the consoles are joined by adapters rather than a cable.
+    pub fn is_wireless(&self) -> bool {
+        self.wireless
+    }
+
+    /// Records every adapter command and answer (see `take_log`).
+    pub fn set_trace(&mut self, on: bool) {
+        self.log = if on { Some(Vec::new()) } else { None };
+    }
+
+    /// The adapter traffic recorded since the last call, one line per command.
+    pub fn take_log(&mut self) -> Vec<String> {
+        self.log.as_mut().map(std::mem::take).unwrap_or_default()
     }
 
     pub fn nodes(&self) -> &[Gba] {
@@ -100,7 +152,7 @@ impl Link {
 
     /// The words of every transfer completed since the last call.
     pub fn take_transfers(&mut self) -> Vec<[u16; 4]> {
-        std::mem::take(&mut self.log)
+        std::mem::take(&mut self.transfer_log)
     }
 
     /// Runs every console for one of the parent's frames.
@@ -125,20 +177,27 @@ impl Link {
         }
     }
 
-    /// Brings the children up to the parent's clock, then acts on the parent's stop.
+    /// Brings the other consoles up to node 0's clock, then acts on its stop.
     fn sync(&mut self, stop: Option<Stop>) {
         let now = self.nodes[0].bus.scheduler.now();
         for i in 1..self.nodes.len() {
             while let Some(child_stop) = self.nodes[i].run_until_linked(now) {
-                // Children cannot start transfers, so they only report mode changes.
-                debug_assert_eq!(child_stop, Stop::ModeChange);
-                self.update_ready();
+                self.handle(i, child_stop);
             }
         }
+        if let Some(stop) = stop {
+            self.handle(0, stop);
+        }
+    }
+
+    /// Acts on a stop from node `i`.
+    fn handle(&mut self, i: usize, stop: Stop) {
         match stop {
-            None => {}
-            Some(Stop::ModeChange) => self.update_ready(),
-            Some(Stop::TransferStart) => {
+            Stop::ModeChange => self.update_ready(),
+            Stop::Rfu => self.rfu_request(i),
+            Stop::Tick => self.rfu_tick(),
+            // Only the cable's parent, node 0, starts transfers.
+            Stop::TransferStart => {
                 self.update_ready();
                 let mut words = [0xFFFF; 4];
                 for (i, node) in self.nodes.iter_mut().enumerate() {
@@ -149,21 +208,22 @@ impl Link {
                 }
                 self.latched = Some(words);
             }
-            Some(Stop::TransferEnd) => {
+            Stop::TransferEnd => {
                 let words = self.latched.take().unwrap_or([0xFFFF; 4]);
                 for node in &mut self.nodes {
                     let bus = &mut node.bus;
                     bus.sio.complete(words, &mut bus.irq);
                 }
                 self.transfers += 1;
-                self.log.push(words);
+                self.transfer_log.push(words);
             }
         }
     }
 
     /// SD, "all consoles ready": everyone on the cable is in multi-play mode.
     fn update_ready(&mut self) {
-        let all = self.nodes.len() > 1
+        let all = !self.wireless
+            && self.nodes.len() > 1
             && self.nodes.iter().all(|node| node.bus.sio.mode() == Mode::MultiPlay);
         for node in &mut self.nodes {
             node.bus.sio.set_ready(all);

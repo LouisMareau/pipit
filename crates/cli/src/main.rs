@@ -88,6 +88,15 @@ enum Command {
         /// Print every transfer (frame number, then the word from each console).
         #[arg(long)]
         trace_sio: bool,
+        /// Join the consoles with Wireless Adapters instead of a cable (GBA only).
+        #[arg(long)]
+        wireless: bool,
+        /// Print every Wireless Adapter command and answer (`--wireless`).
+        #[arg(long)]
+        trace_rfu: bool,
+        /// Print memory of every console at the end: `ADDR[:LEN]` in hex.
+        #[arg(long)]
+        peek: Vec<String>,
         /// Optional BIOS image (uses the built-in replacement otherwise).
         #[arg(long)]
         bios: Option<PathBuf>,
@@ -170,7 +179,19 @@ fn main() -> Result<()> {
                 fps / 59.73
             );
         }
-        Command::Link { rom, players, frames, save, keys, screenshot, trace_sio, bios } => {
+        Command::Link {
+            rom,
+            players,
+            frames,
+            save,
+            keys,
+            screenshot,
+            trace_sio,
+            wireless,
+            trace_rfu,
+            peek,
+            bios,
+        } => {
             let roms = if rom.len() == 1 { vec![rom[0].clone(); players] } else { rom };
             anyhow::ensure!((2..=4).contains(&roms.len()), "a link joins two to four consoles");
             let bios_data = bios.map(fs::read).transpose().context("reading BIOS")?;
@@ -178,7 +199,8 @@ fn main() -> Result<()> {
             for path in &roms {
                 data.push(fs::read(path).with_context(|| format!("reading {}", path.display()))?);
             }
-            let mut link = AnyLink::open(&roms, data, bios_data)?;
+            let mut link = AnyLink::open(&roms, data, bios_data, wireless)?;
+            link.set_trace_rfu(trace_rfu);
             for i in 0..link.players() {
                 if let Some(path) = save.get(i) {
                     if let Ok(bytes) = fs::read(path) {
@@ -201,8 +223,22 @@ fn main() -> Result<()> {
                         eprintln!("frame {frame}: {}", words.join(" "));
                     }
                 }
+                for line in link.take_rfu_log() {
+                    eprintln!("frame {frame}: {line}");
+                }
             }
             println!("{} transfers over {frames} frames", link.transfers());
+            for spec in &peek {
+                let (addr, len) = spec.split_once(':').unwrap_or((spec, "1"));
+                let addr = u32::from_str_radix(addr.trim_start_matches("0x"), 16)
+                    .context("bad --peek address")?;
+                let len: u32 = len.parse().context("bad --peek length")?;
+                for i in 0..link.players() {
+                    let bytes: Vec<String> =
+                        (0..len).map(|o| format!("{:02X}", link.peek(i, addr + o))).collect();
+                    println!("console {}: {addr:08X}: {}", i + 1, bytes.join(" "));
+                }
+            }
             if let Some(path) = screenshot {
                 let (width, height) = link.size();
                 for i in 0..link.players() {

@@ -63,7 +63,7 @@ impl Emulator {
     /// (with an optional BIOS image), 1 a Game Boy (Color).
     #[wasm_bindgen(constructor)]
     pub fn new(rom: &[u8], bios: Option<Vec<u8>>, system: u8) -> Emulator {
-        Self::linked(rom, 1, 0, bios, system)
+        Self::linked(rom, 1, 0, bios, system, false)
     }
 
     /// `players` consoles on a link cable, all running this ROM; `local` is the
@@ -74,6 +74,7 @@ impl Emulator {
         local: usize,
         bios: Option<Vec<u8>>,
         system: u8,
+        wireless: bool,
     ) -> Emulator {
         let (core, width, height) = if system == SYSTEM_GBC {
             let nodes = (0..players.min(2)).map(|_| Gbc::new(rom.to_vec())).collect();
@@ -84,11 +85,12 @@ impl Emulator {
             )
         } else {
             let nodes = (0..players).map(|_| Gba::new(rom.to_vec(), bios.clone())).collect();
-            (
-                Core::Gba(pipit_gba::Link::new(nodes)),
-                pipit_gba::SCREEN_WIDTH,
-                pipit_gba::SCREEN_HEIGHT,
-            )
+            let link = if wireless {
+                pipit_gba::Link::wireless(nodes)
+            } else {
+                pipit_gba::Link::new(nodes)
+            };
+            (Core::Gba(link), pipit_gba::SCREEN_WIDTH, pipit_gba::SCREEN_HEIGHT)
         };
         let local = local.min(players.max(1) - 1);
         Emulator {

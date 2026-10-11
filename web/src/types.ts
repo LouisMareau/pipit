@@ -26,6 +26,8 @@ export interface LinkLoad {
   local: number;
   /** Each console's save data, in player order. */
   saves: (ArrayBuffer | null)[];
+  /** The consoles carry Wireless Adapters instead of a link cable (GBA only). */
+  wireless?: boolean;
 }
 
 /** Which console a game is for; `.gb` and `.gbc` files are Game Boy games. */

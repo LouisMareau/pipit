@@ -28,7 +28,8 @@ Checked items are done and covered by tests.
 - [x] Double speed, the mooneye timer and OAM tests
 - [ ] Sub-cycle access timing (the rest of mooneye's acceptance tests)
 - [x] Link cable for Game Boy games (either console may clock; `crates/gbc/src/link.rs`), and playing them together (two players)
-- [ ] The Wireless Adapter: Union Room, Wireless Club, Berry Crush and the other wireless-only features
+- [x] The Wireless Adapter (`crates/gba/src/rfu.rs`, `wireless.rs`): a lobby can use adapters instead of a cable; Emerald's Union Room shows the other players
+- [ ] Wireless features beyond meeting: trades and battles through the Union Room and Wireless Club, Berry Crush, Record Corner (the protocol is there; they need testing)
 - [ ] The Color's palettes for classic games, Super Game Boy borders
 
 - [x] Load a ROM from the device, play with keyboard

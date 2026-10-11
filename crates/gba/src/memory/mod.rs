@@ -484,7 +484,8 @@ impl Bus {
                 ),
                 Event::AudioSequencer => self.audio.on_sequencer(at, &mut self.scheduler),
                 Event::AudioSample => self.audio.on_sample(at, &mut self.scheduler),
-                Event::SioTransfer => self.sio.on_transfer_end(&mut self.irq),
+                Event::SioTransfer => self.sio.on_transfer_end(&mut self.irq, at),
+                Event::SioTick => self.sio.on_tick(&mut self.scheduler),
             }
         }
         if self.dma.has_pending() {

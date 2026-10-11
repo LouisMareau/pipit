@@ -1,4 +1,4 @@
-# Testing the link cable
+# Testing the link cable and the Wireless Adapter
 
 `pipit link` runs two to four consoles joined by a link cable, in lockstep, in one
 process. The first console is the parent (the one that starts every transfer).
@@ -78,9 +78,39 @@ script accepts the same URL, so the Emerald trade can be run with lag too.
 
 In Emerald, FireRed and LeafGreen only the **right-hand** counter upstairs in a
 Pokémon Center runs the cable club (Trade Center, Colosseum, Record Corner); the
-other two attendants ask for the Wireless Adapter, which is not emulated, and say
-it is not connected. Ruby and Sapphire have a single cable counter. The Pokédex
-and, for trading, at least two Pokémon are needed; no badge is.
+other two attendants ask for the Wireless Adapter and, with a cable, say it is
+not connected. Ruby and Sapphire have a single cable counter. The Pokédex and,
+for trading, at least two Pokémon are needed; no badge is.
+
+## The Wireless Adapter
+
+`pipit link --wireless` plugs a Wireless Adapter into every console instead of
+a cable; in the app the host picks "Wireless Adapter" under Link before
+starting. Any console can then host a wireless group and the others find it, so
+the **middle** counter (Union Room) and the **left** one (Wireless Club) work.
+`--trace-rfu` prints every adapter command with its answer, one line each
+(console, command byte, parameter words, answer words), plus the commands the
+adapter sends back (`<- 28` "data ready", `<- 29` "disconnected") and the
+logins and resets:
+
+```text
+pipit link game.gba --players 2 --wireless --trace-rfu \
+    --save a.sav --save b.sav --frames 4800 --keys "$(cat union-a.txt)" --keys "$(cat union-b.txt)"
+```
+
+Two consoles that start from the same save with the same key script are perfect
+clones: in the Union Room they switch between hosting and searching at the same
+random moments and never meet. Give the second console's script an offset of a
+few frames (every frame number plus eleven, say) and the partner's trainer
+appears in the room a couple of seconds after entering. From the counter save
+above, the attendant for the Union Room is reached with Down (one tile, past the
+counter's end), Left for four tiles, Up (one tile), Up again to face it; then A
+every 45 frames through "enter?", the save prompt and the door.
+
+How the adapter is modelled is in [architecture.md](architecture.md): the
+protocol words in `crates/gba/src/rfu.rs`, what travels between adapters in
+`crates/gba/src/wireless.rs`. Data frames cross in rounds; a round runs as soon
+as a host and all its children wait for one, and every quarter frame otherwise.
 
 ## Game Boy games
 

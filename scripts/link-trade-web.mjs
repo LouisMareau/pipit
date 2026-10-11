@@ -22,6 +22,12 @@ const url = urlArg ?? "http://localhost:4173";
 const keysA = readFileSync(keysAArg, "utf8").trim();
 const keysB = readFileSync(keysBArg, "utf8").trim();
 const FRAMES = Number(process.env.PIPIT_TRADE_FRAMES ?? 9100);
+// Other link-room errands reuse this script: PIPIT_LINK_MODE=wireless hosts
+// with the Wireless Adapter, PIPIT_SHOT=<prefix> screenshots both windows at
+// the end, and PIPIT_TRADE_VERIFY=0 skips the trade check.
+const linkMode = process.env.PIPIT_LINK_MODE ?? "cable";
+const shot = process.env.PIPIT_SHOT;
+const verify = process.env.PIPIT_TRADE_VERIFY !== "0";
 /** Rejects when `promise` takes longer than `ms`. */
 const within = (ms, promise, what) =>
   Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`timed out: ${what}`)), ms))]);
@@ -72,8 +78,9 @@ await play(guest, keysB);
 step("guest playing");
 await guest.evaluate(`document.querySelector('.link-input').value = ${JSON.stringify(code)}; document.querySelector('[data-action=join-form]').requestSubmit(); true`);
 await sleep(1500);
+await host.evaluate(`document.querySelector('[data-link=mode]').value = ${JSON.stringify(linkMode)}; true`);
 await host.evaluate("document.querySelector('[data-action=start]').click(); true");
-console.log(`joined with code ${code}, started; playing ${FRAMES} frames…`);
+console.log(`joined with code ${code}, started (${linkMode}); playing ${FRAMES} frames…`);
 
 const frameOf = (page) => page.evaluate("Number(document.querySelector('.player').dataset.linkFrame ?? 0)");
 const linked = (page) => page.evaluate("document.querySelector('.player').classList.contains('linked')");
@@ -137,6 +144,17 @@ process.on("uncaughtException", (error) => {
   for (const line of host.logs.slice(-20)) console.error(`  console ${line}`);
   process.exit(1);
 });
+if (shot) {
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(`${shot}-host.png`, await host.screenshot());
+  writeFileSync(`${shot}-guest.png`, await guest.screenshot());
+  console.log(`screenshots: ${shot}-host.png, ${shot}-guest.png`);
+}
+if (!verify) {
+  console.log("played; no trade to verify");
+  host.close();
+  process.exit(0);
+}
 const hostParty = party(await saveOf(host, "host"));
 const guestParty = party(await saveOf(guest, "guest"));
 console.log(`host party: ${hostParty.join(", ")}; guest party: ${guestParty.join(", ")}`);

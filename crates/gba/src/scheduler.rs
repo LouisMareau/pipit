@@ -19,8 +19,10 @@ pub enum Event {
     AudioSequencer,
     /// Produce one output audio sample.
     AudioSample,
-    /// A serial (multi-play) transfer finishes.
+    /// A serial transfer finishes.
     SioTransfer,
+    /// Time for a radio round between wireless adapters (the link's clock).
+    SioTick,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

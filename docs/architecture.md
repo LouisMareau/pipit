@@ -33,8 +33,10 @@ data, serialize to a save state.
 | `timers.rs` | 4 timers | Prescalers, cascade, IRQs, FIFO feeding |
 | `irq.rs` | Interrupt controller | IE / IF / IME, halt, IRQ delay |
 | `keypad.rs` | Keys | KEYINPUT / KEYCNT with IRQ conditions |
-| `sio.rs` | Serial port | Multi-play (link cable) mode with timing and IRQ; the other modes are register stubs |
-| `link.rs` | Link cable | Up to four consoles run in lockstep in one process, exchanging multi-play words |
+| `sio.rs` | Serial port | Multi-play (link cable) mode and 32-bit normal mode (the Wireless Adapter's), with timing and IRQ; UART, JOY bus and general purpose are register stubs |
+| `rfu.rs` | Wireless Adapter | One adapter as its console sees it: the "NINTENDO" login, command and acknowledgement words, the clock hand-over for waits |
+| `link.rs` | Link | Up to four consoles run in lockstep in one process, joined by a cable (multi-play words) or by adapters |
+| `wireless.rs` | Radio | What goes between adapters: who hosts, who joins which slot, the rounds that carry data frames, disconnects |
 | `scheduler.rs` | — | Event queue driving everything above on a shared cycle counter |
 
 ### Timing model
@@ -93,7 +95,10 @@ listed as known failures.
   device and are never uploaded anywhere.
 - Playing together (`platform/netplay.ts`) does not send cable traffic over the
   network: both players' consoles run on both machines, joined by the core's
-  in-process link, and only button states cross the wire. Emulation is
+  in-process link, and only button states cross the wire. The host chooses
+  whether that link is a cable or Wireless Adapters; the adapters are emulated
+  in the core too (`rfu.rs`, `wireless.rs`), so the wire carries the same
+  button states either way. Emulation is
   deterministic, so both machines compute the same two games and each shows its
   own console; keys are applied a few frames late to hide latency, and everyone
   compares state digests every second to catch drift. Keys that are late are

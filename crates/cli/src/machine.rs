@@ -178,6 +178,7 @@ impl AnyLink {
         paths: &[std::path::PathBuf],
         roms: Vec<Vec<u8>>,
         bios: Option<Vec<u8>>,
+        wireless: bool,
     ) -> anyhow::Result<Self> {
         let game_boy = paths.iter().map(|p| is_game_boy(p)).collect::<Vec<_>>();
         anyhow::ensure!(
@@ -186,11 +187,37 @@ impl AnyLink {
         );
         if game_boy[0] {
             anyhow::ensure!(roms.len() == 2, "a Game Boy link cable joins exactly two consoles");
+            anyhow::ensure!(!wireless, "Game Boy games have no Wireless Adapter");
             Ok(AnyLink::Gbc(pipit_gbc::Link::new(roms.into_iter().map(Gbc::new).collect())))
         } else {
-            Ok(AnyLink::Gba(pipit_gba::Link::new(
-                roms.into_iter().map(|rom| Gba::new(rom, bios.clone())).collect(),
-            )))
+            let nodes = roms.into_iter().map(|rom| Gba::new(rom, bios.clone())).collect();
+            Ok(AnyLink::Gba(if wireless {
+                pipit_gba::Link::wireless(nodes)
+            } else {
+                pipit_gba::Link::new(nodes)
+            }))
+        }
+    }
+
+    /// A byte of a console's memory, as the CPU would read it.
+    pub fn peek(&mut self, player: usize, addr: u32) -> u8 {
+        match self {
+            AnyLink::Gba(link) => link.nodes_mut()[player].bus.load8(addr),
+            AnyLink::Gbc(link) => link.nodes_mut()[player].bus.peek(addr as u16),
+        }
+    }
+
+    /// Records Wireless Adapter traffic (GBA links only).
+    pub fn set_trace_rfu(&mut self, on: bool) {
+        if let AnyLink::Gba(link) = self {
+            link.set_trace(on);
+        }
+    }
+
+    pub fn take_rfu_log(&mut self) -> Vec<String> {
+        match self {
+            AnyLink::Gba(link) => link.take_log(),
+            AnyLink::Gbc(_) => Vec::new(),
         }
     }
 

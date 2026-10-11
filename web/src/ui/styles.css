@@ -1402,7 +1402,8 @@ body[data-chrome="drawer"] .toast {
   margin-top: 8px;
 }
 
-.link-advanced input {
+.link-advanced input,
+.link-mode select {
   flex: 1;
   min-width: 0;
   border: 0;
@@ -1411,6 +1412,10 @@ body[data-chrome="drawer"] .toast {
   color: var(--text);
   padding: 6px 8px;
   font: inherit;
+}
+
+.link-mode {
+  margin-top: 4px;
 }
 
 /* Game Boy games: no shoulder buttons. */

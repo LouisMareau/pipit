@@ -462,7 +462,11 @@ export class App {
     });
     this.linkDialog.onHost = () => void this.startSession("host", generateCode());
     this.linkDialog.onJoin = (code) => void this.startSession("guest", code);
-    this.linkDialog.onStart = () => this.session?.start();
+    this.linkDialog.onStart = () => {
+      if (!this.session) return;
+      this.session.wireless = this.linkDialog.wireless;
+      this.session.start();
+    };
     this.linkDialog.onSettings = (connection) => {
       this.settings = { ...this.settings, connection };
       void storage.saveSettings(this.settings);
@@ -483,7 +487,7 @@ export class App {
   private openLinkDialog() {
     if (!this.current || this.session) return;
     this.pauseForDialog(true);
-    this.linkDialog.open(this.settings.connection);
+    this.linkDialog.open(this.settings.connection, this.current.system !== "gbc");
   }
 
   private async startSession(role: Role, code: string) {
@@ -537,12 +541,18 @@ export class App {
   }
 
   private sessionPlayers = 0;
+  private sessionWireless = false;
+
+  /** " · wireless" when the consoles carry Wireless Adapters, nothing for a cable. */
+  private linkKind(): string {
+    return this.sessionWireless ? " · wireless" : "";
+  }
 
   private showPing(ms: number) {
     if (!this.session) return;
     const badge = this.player.querySelector(".link-badge")!;
     badge.textContent = this.sessionPlayers
-      ? `Linked · ${this.sessionPlayers} players · ${Math.round(ms)} ms · delay ${this.session.delayFrames}`
+      ? `Linked · ${this.sessionPlayers} players${this.linkKind()} · ${Math.round(ms)} ms · delay ${this.session.delayFrames}`
       : "Linked";
     if (!this.player.classList.contains("linked")) this.linkDialog.setStatus(`Connected, ${Math.round(ms)} ms round trip`);
   }
@@ -562,7 +572,8 @@ export class App {
     // The worker reports `loaded`, which starts the display loop.
     this.emulator.load(rom, null, null, this.current?.system ?? "gba", start.link, start.epoch);
     this.sessionPlayers = start.link.players;
-    this.player.querySelector(".link-badge")!.textContent = `Linked · ${start.link.players} players`;
+    this.sessionWireless = start.link.wireless === true;
+    this.player.querySelector(".link-badge")!.textContent = `Linked · ${start.link.players} players${this.linkKind()}`;
     // Watching: any console of the link can be shown; keys still go to your own.
     const view = this.player.querySelector<HTMLSelectElement>("[data-view]")!;
     view.replaceChildren(

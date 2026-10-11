@@ -30,8 +30,8 @@ export class LinkDialog {
         </p>
         <p class="muted small">
           In Pokémon Emerald, FireRed and LeafGreen the cable club is the <strong>right-hand</strong>
-          counter upstairs in a Pokémon Center; the other two need the Wireless Adapter, which is
-          not emulated.
+          counter upstairs in a Pokémon Center. With the Wireless Adapter, the middle counter opens
+          the Union Room and the left one the Wireless Club.
         </p>
         <section class="link-section">
           <h3>Host</h3>
@@ -39,6 +39,12 @@ export class LinkDialog {
             <button class="btn btn-primary" data-action="host">Host a game</button>
             <code class="link-code hidden" aria-live="polite"></code>
           </div>
+          <label class="row link-mode"><span>Link</span>
+            <select data-link="mode">
+              <option value="cable">Game Link Cable</option>
+              <option value="wireless">Wireless Adapter</option>
+            </select>
+          </label>
           <div class="link-lobby hidden">
             <p class="muted small link-players" aria-live="polite"></p>
             <button class="btn btn-primary" data-action="start" disabled>Start</button>
@@ -101,12 +107,18 @@ export class LinkDialog {
     return !this.element.classList.contains("hidden");
   }
 
-  open(settings: ConnectionSettings) {
+  /** The host's choice: join the consoles with Wireless Adapters rather than a cable. */
+  get wireless(): boolean {
+    return this.element.querySelector<HTMLSelectElement>("[data-link=mode]")!.value === "wireless";
+  }
+
+  open(settings: ConnectionSettings, wirelessAvailable = true) {
     this.setStatus("");
     this.showCode(null);
     this.setPlayers(0);
     this.setBusy(false);
     this.writeSettings(settings);
+    this.element.querySelector(".link-mode")!.classList.toggle("hidden", !wirelessAvailable);
     this.element.classList.remove("hidden");
     this.element.querySelector<HTMLInputElement>(".link-input")?.focus();
   }
