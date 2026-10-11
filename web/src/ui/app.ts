@@ -11,6 +11,7 @@ import { FramePacer } from "../platform/pacer";
 import * as storage from "../platform/storage";
 import type { ControllerMapping, ResolvedTouchLayout, RomEntry, Settings, TouchLayout } from "../types";
 import { DEFAULT_CONNECTION, DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key, STATE_SLOTS } from "../types";
+import { ConfirmDialog } from "./confirm-dialog";
 import { ControllerSettings } from "./controller-settings";
 import { ControllerToggle } from "./controller-toggle";
 import { icon } from "./icons";
@@ -81,6 +82,7 @@ export class App {
   private saveTimer: number | null = null;
   private latestSave: ArrayBuffer | null = null;
   private linkDialog = new LinkDialog();
+  private confirmDialog = new ConfirmDialog();
   /** Playing together (see platform/netplay.ts); null when playing alone. */
   private session: LinkSession | null = null;
   /** A connection being made for a session (hosting or joining). */
@@ -176,7 +178,7 @@ export class App {
     this.player.querySelector(".toolbar-controller")!.append(this.controller.element);
     this.stage.append(this.touch.element);
     this.layoutEditor = new LayoutEditor(this.stage);
-    this.player.append(this.controllerSettings.element, this.keyboardSettings.element, this.linkDialog.element);
+    this.player.append(this.controllerSettings.element, this.keyboardSettings.element, this.linkDialog.element, this.confirmDialog.element);
     this.root.append(this.library.element, this.player);
 
     this.library.onPlay = (entry) => this.play(entry);
@@ -207,7 +209,11 @@ export class App {
     document.addEventListener("visibilitychange", () => {
       if (document.hidden && this.current && !this.paused) this.emulator.requestSave();
     });
-    window.addEventListener("beforeunload", () => this.flushSave());
+    window.addEventListener("beforeunload", (e) => {
+      this.flushSave();
+      // Closing the tab mid-session ends it for everyone: let the browser ask.
+      if (this.session && this.player.classList.contains("linked")) e.preventDefault();
+    });
     window.addEventListener("resize", () => this.applyLayout());
     this.applySettings();
     (window as unknown as { pipit: TestHooks }).pipit = this.hooks;
@@ -495,7 +501,7 @@ export class App {
     if (role === "host") {
       const listener = await this.settle(listen(code, local, this.settings.connection), entry);
       if (!listener) return;
-      session = LinkSession.host(listener, romHash, save);
+      session = LinkSession.host(listener, romHash, save, entry.system === "gbc" ? 2 : undefined);
     } else {
       const transport = await this.settle(connect(code, local, this.settings.connection), entry);
       if (!transport) return;
@@ -554,7 +560,7 @@ export class App {
     this.audio.clear();
     this.stalledTicks = 0;
     // The worker reports `loaded`, which starts the display loop.
-    this.emulator.load(rom, null, null, "gba", start.link, start.epoch);
+    this.emulator.load(rom, null, null, this.current?.system ?? "gba", start.link, start.epoch);
     this.sessionPlayers = start.link.players;
     this.player.querySelector(".link-badge")!.textContent = `Linked · ${start.link.players} players`;
     // Watching: any console of the link can be shown; keys still go to your own.
@@ -597,6 +603,22 @@ export class App {
       this.saveWaiters.push(resolve);
       this.emulator.requestSave();
     });
+  }
+
+  /** In a running session, leaving ends it for everyone: ask first. */
+  private async leaveIfAgreed(leave: () => void) {
+    if (this.session && this.player.classList.contains("linked")) {
+      const hosting = this.session.role === "host";
+      const agreed = await this.confirmDialog.ask(
+        "Leave the session?",
+        hosting
+          ? "You are hosting: leaving ends the game for every player."
+          : "Leaving ends the game for every player, not just you.",
+        { confirm: "Leave", cancel: "Stay" },
+      );
+      if (!agreed) return;
+    }
+    leave();
   }
 
   private linkFailed(message: string) {
@@ -709,7 +731,7 @@ export class App {
       const slot = Number(button.dataset["slot"] ?? 0);
       switch (button.dataset["action"]) {
         case "back":
-          this.backToLibrary();
+          void this.leaveIfAgreed(() => this.backToLibrary());
           break;
         case "pause":
           this.togglePause();
@@ -734,7 +756,7 @@ export class App {
           break;
         case "leave-link":
           this.setMenuOpen(false);
-          this.session?.leave();
+          void this.leaveIfAgreed(() => this.session?.leave());
           break;
         case "edit-layout":
           this.openLayoutEditor();

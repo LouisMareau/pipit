@@ -27,7 +27,8 @@ Checked items are done and covered by tests.
 - [x] MBC1/2/3/5 with battery saves; the MBC3 clock, saved in the usual trailer
 - [x] Double speed, the mooneye timer and OAM tests
 - [ ] Sub-cycle access timing (the rest of mooneye's acceptance tests)
-- [ ] Link cable for Game Boy games, and playing them together
+- [x] Link cable for Game Boy games (either console may clock; `crates/gbc/src/link.rs`), and playing them together (two players)
+- [ ] The Wireless Adapter: Union Room, Wireless Club, Berry Crush and the other wireless-only features
 - [ ] The Color's palettes for classic games, Super Game Boy borders
 
 - [x] Load a ROM from the device, play with keyboard

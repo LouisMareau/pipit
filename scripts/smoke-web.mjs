@@ -296,6 +296,10 @@ const laggy = /[?&]lag=/.test(url);
 console.log(`watching player 2: frame ${whileWatching.frame} (${whileWatching.linked ? "linked" : "not linked"}); ${laggy ? `lagged run: delay ${linkHost.delay} → ${linkAfterKeys.delay}, rollbacks ${linkAfterKeys.rollbacks}` : "no lag"}`);
 // One guest leaves: the session is over for everyone.
 await guest.evaluate("document.querySelector('[data-action=menu]').click(); document.querySelector('.menu [data-action=leave-link]').click(); true");
+await sleep(300);
+// Leaving asks first, since it ends the game for everyone.
+const leaveAsked = await guest.evaluate("!document.querySelector('.confirm-dialog').closest('.modal-backdrop').classList.contains('hidden')");
+await guest.evaluate("document.querySelector('.confirm-dialog [data-action=confirm]').click(); true");
 await sleep(800);
 const afterLeave = "({ library: !document.querySelector('.library').classList.contains('hidden'), toast: document.querySelector('.toast')?.textContent ?? '' })";
 const hostAfterLeave = await evaluate(afterLeave);
@@ -477,10 +481,29 @@ if (gbRomArg) {
     for (let i = 0; i < d.length; i += 4) if (d[i] | d[i + 1] | d[i + 2]) lit++;
     return { listed: ${listed}, system: document.querySelector('.player').dataset.system, width: canvas.width, height: canvas.height,
       lit, fps: document.querySelector('.toolbar-fps').textContent,
-      shouldersHidden: getComputedStyle(document.querySelector('.tbtn-shoulder')).display === 'none',
-      linkHidden: getComputedStyle(document.querySelector('.menu [data-action=link]')).display === 'none' };
+      shouldersHidden: getComputedStyle(document.querySelector('.tbtn-shoulder')).display === 'none' };
   })()`);
   console.log(`game boy: ${JSON.stringify(gb)}`);
+  // Two Game Boys on a cable: a second window joins, both run in step.
+  await openLinkDialog({ evaluate });
+  await evaluate("document.querySelector('[data-action=host]').click(); true");
+  await sleep(400);
+  const gbCode = await evaluate("document.querySelector('.link-code').textContent");
+  const gbGuest = await newWindow(url);
+  await sleep(1500);
+  await gbGuest.evaluate("document.querySelector('.tab[data-tab=gbc]').click(); document.querySelector('.rom-list[data-system=gbc] .rom-main').click(); true");
+  await sleep(1500);
+  await openLinkDialog(gbGuest);
+  await gbGuest.evaluate(
+    `document.querySelector('.link-input').value = ${JSON.stringify(gbCode)}; document.querySelector('[data-action=join-form]').requestSubmit(); true`,
+  );
+  await sleep(1500);
+  await evaluate("document.querySelector('[data-action=start]').click(); true");
+  await sleep(4000);
+  gb.link = { host: await linkState(), guest: await linkState(gbGuest) };
+  console.log(`game boy link: host ${JSON.stringify(gb.link.host)} guest ${JSON.stringify(gb.link.guest)}`);
+  await gbGuest.closeWindow();
+  await sleep(800);
   await evaluate("document.querySelector('[data-action=back]').click(); true");
   await sleep(500);
 }
@@ -561,7 +584,9 @@ if (
   !toastGone ||
   !landingOk(landing) ||
   !landingOk(landingPhone) ||
-  (gb && (gb.listed !== 1 || gb.system !== "gbc" || gb.width !== 160 || gb.height !== 144 || gb.lit === 0 || !gb.shouldersHidden || !gb.linkHidden)) ||
+  (gb &&
+    (gb.listed !== 1 || gb.system !== "gbc" || gb.width !== 160 || gb.height !== 144 || gb.lit === 0 || !gb.shouldersHidden ||
+      !gb.link.host.linked || !gb.link.guest.linked || !/2 players/.test(gb.link.host.badgeText) || gb.link.guest.frame < 100)) ||
   !lobby.canStart ||
   !linkHost.linked ||
   !linkGuest.linked ||
@@ -580,6 +605,7 @@ if (
   sides.overlap ||
   whileWatching.frame <= linkAfterKeys.frame ||
   (laggy && (linkAfterKeys.delay <= linkHost.delay || linkAfterKeys.rollbacks < 1)) ||
+  !leaveAsked ||
   !hostAfterLeave.library ||
   !/player left/.test(hostAfterLeave.toast) ||
   !guest2AfterLeave.library

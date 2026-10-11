@@ -20,6 +20,7 @@ pub mod cartridge;
 pub mod color;
 pub mod cpu;
 pub mod joypad;
+pub mod link;
 pub mod memory;
 pub mod serial;
 pub mod timer;
@@ -27,6 +28,7 @@ pub mod video;
 
 pub use cartridge::Cartridge;
 pub use joypad::key;
+pub use link::Link;
 pub use memory::Bus;
 pub use pipit_common::snapshot::{self, StateError};
 

@@ -1413,11 +1413,10 @@ body[data-chrome="drawer"] .toast {
   font: inherit;
 }
 
-/* Game Boy games: no shoulder buttons, and no link play yet. */
+/* Game Boy games: no shoulder buttons. */
 .player[data-system="gbc"] .tbtn-shoulder,
 .player[data-system="gbc"] .edit-box[data-id="l"],
-.player[data-system="gbc"] .edit-box[data-id="r"],
-.player[data-system="gbc"] [data-action="link"] {
+.player[data-system="gbc"] .edit-box[data-id="r"] {
   display: none;
 }
 
@@ -1461,4 +1460,8 @@ body[data-chrome="drawer"] .toast {
 
 .player.linked .menu .link-side {
   display: flex;
+}
+
+.confirm-dialog p {
+  margin: 0 0 16px;
 }

@@ -24,7 +24,8 @@ export class LinkDialog {
           <button class="btn btn-icon" data-action="close" aria-label="Close">${icon("close")}</button>
         </header>
         <p class="muted small">
-          Trade and battle as with a link cable, over the internet, with up to four players.
+          Trade and battle as with a link cable, over the internet, with up to four players
+          (two for Game Boy games).
           Everyone needs the same ROM, and the game restarts for all from your saves, so save first.
         </p>
         <p class="muted small">

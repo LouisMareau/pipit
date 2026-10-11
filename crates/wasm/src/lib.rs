@@ -1,17 +1,32 @@
 //! WebAssembly bindings. The web app talks to `Emulator` from a Web Worker.
 //!
-//! An `Emulator` is a Game Boy Advance, several of them on a link cable (made
-//! with `linked`; every console is emulated here and `local` is the one this
-//! player sees and controls), or a Game Boy (Color). Frames are exposed as a
+//! An `Emulator` is one or more consoles of one kind on a link cable (made with
+//! `linked`; every console is emulated here and `local` is the one this player
+//! sees and controls): Game Boy Advances, or Game Boys. Frames are exposed as a
 //! pointer into WASM memory (RGBA bytes, ready for an `ImageData`) so the
 //! worker can copy them out without an intermediate `Vec`.
 
-use pipit_gba::{Gba, Keys, Link};
+use pipit_gba::{Gba, Keys};
 use pipit_gbc::Gbc;
 use wasm_bindgen::prelude::*;
 
 /// `system` values the front-end passes: 0 is a Game Boy Advance.
 const SYSTEM_GBC: u8 = 1;
+
+/// One long-lived object either way: the size difference does not matter.
+#[allow(clippy::large_enum_variant)]
+enum Core {
+    Gba(pipit_gba::Link),
+    Gbc(pipit_gbc::Link),
+}
+
+/// A console's picture (the last console's, for a player index past the end).
+fn framebuffer(core: &Core, player: usize) -> &[u32] {
+    match core {
+        Core::Gba(link) => link.nodes()[player.min(link.nodes().len() - 1)].framebuffer(),
+        Core::Gbc(link) => link.nodes()[player.min(link.nodes().len() - 1)].framebuffer(),
+    }
+}
 
 /// 0xFFRRGGBB pixels to RGBA bytes, through the colour table when there is one.
 fn convert(framebuffer: &[u32], rgba: &mut [u8], lut: Option<&[[u8; 4]]>) {
@@ -25,13 +40,6 @@ fn convert(framebuffer: &[u32], rgba: &mut [u8], lut: Option<&[[u8; 4]]>) {
             *out = [(px >> 16) as u8, (px >> 8) as u8, *px as u8, 0xFF];
         }
     }
-}
-
-/// One long-lived object either way: the size difference does not matter.
-#[allow(clippy::large_enum_variant)]
-enum Core {
-    Gba(Link),
-    Gbc(Gbc),
 }
 
 #[wasm_bindgen]
@@ -55,31 +63,36 @@ impl Emulator {
     /// (with an optional BIOS image), 1 a Game Boy (Color).
     #[wasm_bindgen(constructor)]
     pub fn new(rom: &[u8], bios: Option<Vec<u8>>, system: u8) -> Emulator {
-        if system == SYSTEM_GBC {
-            let gbc = Gbc::new(rom.to_vec());
-            let (width, height) = (pipit_gbc::SCREEN_WIDTH, pipit_gbc::SCREEN_HEIGHT);
-            Emulator {
-                core: Core::Gbc(gbc),
-                local: 0,
-                view: 0,
-                width,
-                height,
-                rgba: vec![0; width * height * 4],
-                side: Vec::new(),
-                color_lut: None,
-            }
-        } else {
-            Self::linked(rom, 1, 0, bios)
-        }
+        Self::linked(rom, 1, 0, bios, system)
     }
 
-    /// `players` Game Boy Advances on a link cable, all running this ROM; `local`
-    /// is the one this player sees and controls.
-    pub fn linked(rom: &[u8], players: usize, local: usize, bios: Option<Vec<u8>>) -> Emulator {
-        let nodes = (0..players).map(|_| Gba::new(rom.to_vec(), bios.clone())).collect();
-        let (width, height) = (pipit_gba::SCREEN_WIDTH, pipit_gba::SCREEN_HEIGHT);
+    /// `players` consoles on a link cable, all running this ROM; `local` is the
+    /// one this player sees and controls. A Game Boy cable joins two.
+    pub fn linked(
+        rom: &[u8],
+        players: usize,
+        local: usize,
+        bios: Option<Vec<u8>>,
+        system: u8,
+    ) -> Emulator {
+        let (core, width, height) = if system == SYSTEM_GBC {
+            let nodes = (0..players.min(2)).map(|_| Gbc::new(rom.to_vec())).collect();
+            (
+                Core::Gbc(pipit_gbc::Link::new(nodes)),
+                pipit_gbc::SCREEN_WIDTH,
+                pipit_gbc::SCREEN_HEIGHT,
+            )
+        } else {
+            let nodes = (0..players).map(|_| Gba::new(rom.to_vec(), bios.clone())).collect();
+            (
+                Core::Gba(pipit_gba::Link::new(nodes)),
+                pipit_gba::SCREEN_WIDTH,
+                pipit_gba::SCREEN_HEIGHT,
+            )
+        };
+        let local = local.min(players.max(1) - 1);
         Emulator {
-            core: Core::Gba(Link::new(nodes)),
+            core,
             local,
             view: local,
             width,
@@ -90,17 +103,10 @@ impl Emulator {
         }
     }
 
-    fn gba(&self) -> &Gba {
-        match &self.core {
-            Core::Gba(link) => &link.nodes()[self.local],
-            Core::Gbc(_) => unreachable!("not a Game Boy Advance"),
-        }
-    }
-
     pub fn players(&self) -> usize {
         match &self.core {
             Core::Gba(link) => link.nodes().len(),
-            Core::Gbc(_) => 1,
+            Core::Gbc(link) => link.nodes().len(),
         }
     }
 
@@ -116,7 +122,7 @@ impl Emulator {
     pub fn is_color(&self) -> bool {
         match &self.core {
             Core::Gba(_) => true,
-            Core::Gbc(gbc) => gbc.is_color(),
+            Core::Gbc(link) => link.nodes()[self.local].is_color(),
         }
     }
 
@@ -130,18 +136,14 @@ impl Emulator {
         match &mut self.core {
             Core::Gba(link) if link.nodes().len() == 1 => link.nodes_mut()[0].run_frame(),
             Core::Gba(link) => link.run_frame(),
-            Core::Gbc(gbc) => gbc.run_frame(),
+            Core::Gbc(link) => link.run_frame(),
         }
     }
 
     /// Re-converts the current framebuffer to RGBA without running (after a state
     /// load or a colour-mode change).
     pub fn refresh_frame(&mut self) {
-        let framebuffer: &[u32] = match &self.core {
-            Core::Gba(link) => link.nodes()[self.view].framebuffer(),
-            Core::Gbc(gbc) => gbc.framebuffer(),
-        };
-        convert(framebuffer, &mut self.rgba, self.color_lut.as_deref());
+        convert(framebuffer(&self.core, self.view), &mut self.rgba, self.color_lut.as_deref());
     }
 
     /// Converts another console's picture into the side buffer (`side_ptr`), for
@@ -150,11 +152,7 @@ impl Emulator {
         if self.side.len() != self.rgba.len() {
             self.side = vec![0; self.rgba.len()];
         }
-        let framebuffer: &[u32] = match &self.core {
-            Core::Gba(link) => link.nodes()[player.min(link.nodes().len() - 1)].framebuffer(),
-            Core::Gbc(gbc) => gbc.framebuffer(),
-        };
-        convert(framebuffer, &mut self.side, self.color_lut.as_deref());
+        convert(framebuffer(&self.core, player), &mut self.side, self.color_lut.as_deref());
     }
 
     pub fn side_ptr(&self) -> *const u8 {
@@ -197,26 +195,34 @@ impl Emulator {
         match &mut self.core {
             Core::Gba(link) => link.nodes_mut()[player].set_keys(Keys(keys)),
             // The Game Boy's eight keys are the Advance's low byte.
-            Core::Gbc(gbc) => gbc.set_keys(keys as u8),
+            Core::Gbc(link) => link.nodes_mut()[player].set_keys(keys as u8),
         }
     }
 
     /// Takes the viewed console's audio since the last call (interleaved stereo i16
     /// at 32768 Hz); the other consoles' is dropped so it does not pile up.
     pub fn drain_audio(&mut self) -> Vec<i16> {
+        let view = self.view;
+        let mut out = Vec::new();
         match &mut self.core {
             Core::Gba(link) => {
-                let mut out = Vec::new();
                 for (i, node) in link.nodes_mut().iter_mut().enumerate() {
                     let samples = node.drain_audio();
-                    if i == self.view {
+                    if i == view {
                         out = samples;
                     }
                 }
-                out
             }
-            Core::Gbc(gbc) => gbc.drain_audio(),
+            Core::Gbc(link) => {
+                for (i, node) in link.nodes_mut().iter_mut().enumerate() {
+                    let samples = node.drain_audio();
+                    if i == view {
+                        out = samples;
+                    }
+                }
+            }
         }
+        out
     }
 
     /// Shows (and plays) another console of the link.
@@ -233,9 +239,9 @@ impl Emulator {
             Core::Gba(link) => link.nodes_mut().iter_mut().for_each(|node| {
                 node.drain_audio();
             }),
-            Core::Gbc(gbc) => {
-                gbc.drain_audio();
-            }
+            Core::Gbc(link) => link.nodes_mut().iter_mut().for_each(|node| {
+                node.drain_audio();
+            }),
         }
     }
 
@@ -243,22 +249,22 @@ impl Emulator {
     pub fn save_link_state(&self) -> Vec<u8> {
         match &self.core {
             Core::Gba(link) => link.save_state(),
-            Core::Gbc(gbc) => gbc.save_state(),
+            Core::Gbc(link) => link.save_state(),
         }
     }
 
     pub fn load_link_state(&mut self, data: &[u8]) -> Result<(), JsError> {
         match &mut self.core {
             Core::Gba(link) => link.load_state(data),
-            Core::Gbc(gbc) => gbc.load_state(data),
+            Core::Gbc(link) => link.load_state(data),
         }
         .map_err(|e| JsError::new(&e.to_string()))
     }
 
     pub fn save_data(&self) -> Option<Vec<u8>> {
         match &self.core {
-            Core::Gba(_) => self.gba().save_data().map(<[u8]>::to_vec),
-            Core::Gbc(gbc) => gbc.save_data(),
+            Core::Gba(link) => link.nodes()[self.local].save_data().map(<[u8]>::to_vec),
+            Core::Gbc(link) => link.nodes()[self.local].save_data(),
         }
     }
 
@@ -270,22 +276,22 @@ impl Emulator {
     pub fn load_player_save_data(&mut self, player: usize, data: &[u8]) {
         match &mut self.core {
             Core::Gba(link) => link.nodes_mut()[player].load_save_data(data),
-            Core::Gbc(gbc) => gbc.load_save_data(data),
+            Core::Gbc(link) => link.nodes_mut()[player].load_save_data(data),
         }
     }
 
     pub fn take_save_dirty(&mut self) -> bool {
         match &mut self.core {
             Core::Gba(link) => link.nodes_mut()[self.local].take_save_dirty(),
-            Core::Gbc(gbc) => gbc.take_save_dirty(),
+            Core::Gbc(link) => link.nodes_mut()[self.local].take_save_dirty(),
         }
     }
 
     /// Serializes this player's console.
     pub fn save_state(&self) -> Vec<u8> {
         match &self.core {
-            Core::Gba(_) => self.gba().save_state(),
-            Core::Gbc(gbc) => gbc.save_state(),
+            Core::Gba(link) => link.nodes()[self.local].save_state(),
+            Core::Gbc(link) => link.nodes()[self.local].save_state(),
         }
     }
 
@@ -293,7 +299,7 @@ impl Emulator {
     pub fn load_state(&mut self, data: &[u8]) -> Result<(), JsError> {
         match &mut self.core {
             Core::Gba(link) => link.nodes_mut()[self.local].load_state(data),
-            Core::Gbc(gbc) => gbc.load_state(data),
+            Core::Gbc(link) => link.nodes_mut()[self.local].load_state(data),
         }
         .map_err(|e| JsError::new(&e.to_string()))
     }
@@ -302,7 +308,7 @@ impl Emulator {
     pub fn state_hash(&self) -> u32 {
         let h = match &self.core {
             Core::Gba(link) => link.state_hash(),
-            Core::Gbc(gbc) => gbc.state_hash(),
+            Core::Gbc(link) => link.state_hash(),
         };
         (h as u32) ^ ((h >> 32) as u32)
     }
@@ -313,21 +319,25 @@ impl Emulator {
             Core::Gba(link) => {
                 link.nodes_mut().iter_mut().for_each(|node| node.set_time(unix_seconds as i64))
             }
-            Core::Gbc(gbc) => gbc.set_time(unix_seconds as i64),
+            Core::Gbc(link) => {
+                link.nodes_mut().iter_mut().for_each(|node| node.set_time(unix_seconds as i64))
+            }
         }
     }
 
     pub fn title(&self) -> String {
         match &self.core {
-            Core::Gba(_) => self.gba().title(),
-            Core::Gbc(gbc) => gbc.title(),
+            Core::Gba(link) => link.nodes()[self.local].title(),
+            Core::Gbc(link) => link.nodes()[self.local].title(),
         }
     }
 
     pub fn game_code(&self) -> String {
         match &self.core {
-            Core::Gba(_) => self.gba().game_code(),
-            Core::Gbc(gbc) => if gbc.is_color() { "GBC" } else { "GB" }.to_string(),
+            Core::Gba(link) => link.nodes()[self.local].game_code(),
+            Core::Gbc(link) => {
+                if link.nodes()[self.local].is_color() { "GBC" } else { "GB" }.to_string()
+            }
         }
     }
 }

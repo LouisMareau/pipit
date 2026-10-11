@@ -81,3 +81,11 @@ Pokémon Center runs the cable club (Trade Center, Colosseum, Record Corner); th
 other two attendants ask for the Wireless Adapter, which is not emulated, and say
 it is not connected. Ruby and Sapphire have a single cable counter. The Pokédex
 and, for trading, at least two Pokémon are needed; no badge is.
+
+## Game Boy games
+
+The same `pipit link` works for `.gb` and `.gbc` files, two consoles at a time
+(a Game Boy cable joins two). Either console may clock a transfer, as the Pokémon
+games take turns doing, so the two are kept within one instruction of each other
+rather than synchronised at the host's transfers. Playing together in the app
+caps the lobby at two players for these games.

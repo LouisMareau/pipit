@@ -355,9 +355,13 @@ export class LinkSession {
     private save: ArrayBuffer | null,
   ) {}
 
+  /** The most players this game allows (a Game Boy cable joins two). */
+  private maxPlayers = MAX_PLAYERS;
+
   /** Hosts: guests arriving through `listener` join the lobby until `start()`. */
-  static host(listener: Listener, romHash: string, save: ArrayBuffer | null): LinkSession {
+  static host(listener: Listener, romHash: string, save: ArrayBuffer | null, maxPlayers = MAX_PLAYERS): LinkSession {
     const session = new LinkSession("host", romHash, save);
+    session.maxPlayers = Math.min(maxPlayers, MAX_PLAYERS);
     listener.onGuest = (transport) => session.addGuest(transport);
     session.pingTimer = setInterval(() => session.pingAll(), PING_EVERY_MS);
     session.onStatus("Waiting for players…");
@@ -382,7 +386,7 @@ export class LinkSession {
 
   private addGuest(transport: Transport) {
     if (this.closed) return;
-    if (this.started || this.guests.length >= MAX_PLAYERS - 1) {
+    if (this.started || this.guests.length >= this.maxPlayers - 1) {
       transport.send({ type: "refuse", reason: this.started ? "already started" : "no room left" });
       transport.close();
       return;

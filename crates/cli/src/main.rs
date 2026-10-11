@@ -13,10 +13,10 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use pipit_gba::{Gba, Keys, Link, SCREEN_HEIGHT, SCREEN_WIDTH};
+use pipit_gba::Keys;
 
 mod machine;
-use machine::Machine;
+use machine::{AnyLink, Machine};
 
 #[derive(Parser)]
 #[command(name = "pipit", version, about = "Headless GBA emulator runner")]
@@ -173,55 +173,47 @@ fn main() -> Result<()> {
         Command::Link { rom, players, frames, save, keys, screenshot, trace_sio, bios } => {
             let roms = if rom.len() == 1 { vec![rom[0].clone(); players] } else { rom };
             anyhow::ensure!((2..=4).contains(&roms.len()), "a link joins two to four consoles");
-            let game_boy = roms.iter().any(|p| {
-                matches!(
-                    p.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(),
-                    Some("gb" | "gbc")
-                )
-            });
-            anyhow::ensure!(!game_boy, "Game Boy games cannot be linked yet");
             let bios_data = bios.map(fs::read).transpose().context("reading BIOS")?;
-            let mut nodes = Vec::new();
-            for (i, path) in roms.iter().enumerate() {
-                let data = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-                let mut gba = Gba::new(data, bios_data.clone());
+            let mut data = Vec::new();
+            for path in &roms {
+                data.push(fs::read(path).with_context(|| format!("reading {}", path.display()))?);
+            }
+            let mut link = AnyLink::open(&roms, data, bios_data)?;
+            for i in 0..link.players() {
                 if let Some(path) = save.get(i) {
-                    if let Ok(data) = fs::read(path) {
-                        gba.load_save_data(&data);
+                    if let Ok(bytes) = fs::read(path) {
+                        link.load_save_data(i, &bytes);
                     }
                 }
-                println!("console {}: {} [{}]", i + 1, gba.title(), gba.game_code());
-                nodes.push(gba);
+                println!("console {}: {}", i + 1, link.describe(i));
             }
             let scripts = keys.iter().map(|s| parse_key_script(s)).collect::<Result<Vec<_>>>()?;
-            let mut link = Link::new(nodes);
             for frame in 0..frames {
                 for (i, script) in scripts.iter().enumerate() {
                     if let Some((_, keys)) = script.iter().find(|(f, _)| *f == frame) {
-                        link.nodes_mut()[i].set_keys(*keys);
+                        link.set_keys(i, *keys);
                     }
                 }
                 link.run_frame();
                 if trace_sio {
-                    for w in link.take_transfers() {
-                        eprintln!(
-                            "frame {frame}: {:04X} {:04X} {:04X} {:04X}",
-                            w[0], w[1], w[2], w[3]
-                        );
+                    for words in link.take_transfers() {
+                        let words: Vec<String> = words.iter().map(|w| format!("{w:04X}")).collect();
+                        eprintln!("frame {frame}: {}", words.join(" "));
                     }
                 }
             }
             println!("{} transfers over {frames} frames", link.transfers());
             if let Some(path) = screenshot {
-                for (i, node) in link.nodes().iter().enumerate() {
+                let (width, height) = link.size();
+                for i in 0..link.players() {
                     let out = numbered(&path, i + 1);
-                    write_png(&out, node.framebuffer(), SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32)?;
+                    write_png(&out, link.framebuffer(i), width, height)?;
                     println!("wrote {}", out.display());
                 }
             }
-            for (i, node) in link.nodes().iter().enumerate() {
-                if let (Some(path), Some(data)) = (save.get(i), node.save_data()) {
-                    fs::write(path, data)?;
+            for i in 0..link.players() {
+                if let (Some(path), Some(bytes)) = (save.get(i), link.save_data(i)) {
+                    fs::write(path, bytes)?;
                 }
             }
         }

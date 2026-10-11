@@ -72,6 +72,7 @@ and the serial port, so instruction timing falls out of the access pattern.
 | `video.rs` | PPU | Modes and STAT dot by dot, lines drawn at the start of their mode 3; colour palettes, attributes, both VRAM banks |
 | `audio.rs` | APU | Two pulse channels, wave, noise, the frame sequencer, stereo at 32768 Hz |
 | `timer.rs`, `joypad.rs`, `serial.rs` | — | DIV/TIMA with the edge quirks; the joypad; a serial port that keeps what test ROMs print |
+| `link.rs` | Link cable | Two consoles in lockstep, the one behind in time always stepping next, so either may clock a transfer |
 
 A colour game runs on a Game Boy Color; a classic game runs on a classic Game Boy
 with its four shades. No boot ROM is used. Tests: Blargg's `cpu_instrs`,
