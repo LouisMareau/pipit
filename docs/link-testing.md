@@ -146,6 +146,26 @@ MUDKIP, MUDKIP. `--trace-rfu` shows the joiner connecting (`1F`, `20`, `21`)
 and then every frame crossing: the child's `25` with its frame, the host's `24`
 and `26`, and the `<- 28` wake-ups.
 
+A trade inside the Union Room goes through its trading board. One player
+registers a Pokémon with the attendant (top-left counter: Up to the top row,
+Left until the attendant blocks, Left again to face her, A; Register; the
+first Pokémon; then the wanted type from a list whose order is Normal, Fire,
+Water, Electric, Grass, Ice, Flying, Psychic, Fighting, Poison, … so Water is
+two Downs; A; A to dismiss; then one step Down, away from the counter, because
+any further A would offer to cancel the registration). The other player reads
+the board, the poster left of the attendant: Up to the top row, Down one tile,
+Left to x = 2, Up one tile, A; the first offer; Yes; the first Pokémon; then
+"Please wait" while the adapters connect. The registrar sees "Somebody has
+contacted you", an offer for the registered Pokémon, answers Yes, and both
+say "The trade will be started"; the trade and the save follow by frame
+13600 of the scripts in `build/link/union-trade-a.txt` and `-b.txt`. To tell
+the Pokémon apart, give the second console a copy of the save as another
+trainer: `node scripts/emerald-save.mjs as-trainer counter.sav bob.sav Bob`
+(names only; changing trainer ids would turn the Pokémon into bad eggs, since
+the id is part of their encryption key), and read the parties afterwards with
+`node scripts/emerald-save.mjs party <file.sav>`: QUINCY ends with BOB's
+Mudkip and BOB with QUINCY's.
+
 How the adapter is modelled is in [architecture.md](architecture.md): the
 protocol words in `crates/gba/src/rfu.rs`, what travels between adapters in
 `crates/gba/src/wireless.rs`. Data frames cross in rounds; a round runs as soon
