@@ -97,6 +97,11 @@ enum Command {
         /// Print memory of every console at the end: `ADDR[:LEN]` in hex.
         #[arg(long)]
         peek: Vec<String>,
+        /// Every N frames, snapshot the link, run on, restore and re-run the same
+        /// frames, and report when the two runs disagree (what playing together
+        /// does when it rolls back).
+        #[arg(long, value_name = "N")]
+        check_rollback: Option<u32>,
         /// Optional BIOS image (uses the built-in replacement otherwise).
         #[arg(long)]
         bios: Option<PathBuf>,
@@ -190,6 +195,7 @@ fn main() -> Result<()> {
             wireless,
             trace_rfu,
             peek,
+            check_rollback,
             bios,
         } => {
             let roms = if rom.len() == 1 { vec![rom[0].clone(); players] } else { rom };
@@ -210,7 +216,7 @@ fn main() -> Result<()> {
                 println!("console {}: {}", i + 1, link.describe(i));
             }
             let scripts = keys.iter().map(|s| parse_key_script(s)).collect::<Result<Vec<_>>>()?;
-            for frame in 0..frames {
+            let step = |link: &mut AnyLink, frame: u32| {
                 for (i, script) in scripts.iter().enumerate() {
                     if let Some((_, keys)) = script.iter().find(|(f, _)| *f == frame) {
                         link.set_keys(i, *keys);
@@ -226,8 +232,37 @@ fn main() -> Result<()> {
                 for line in link.take_rfu_log() {
                     eprintln!("frame {frame}: {line}");
                 }
+            };
+            let mut frame = 0;
+            let mut mismatches = 0;
+            while frame < frames {
+                let Some(every) = check_rollback.filter(|&n| n > 0) else {
+                    step(&mut link, frame);
+                    frame += 1;
+                    continue;
+                };
+                let end = (frame + every).min(frames);
+                let snapshot = link.save_state();
+                for f in frame..end {
+                    step(&mut link, f);
+                }
+                let first = link.state_hash();
+                link.load_state(&snapshot)?;
+                for f in frame..end {
+                    step(&mut link, f);
+                }
+                if link.state_hash() != first {
+                    eprintln!(
+                        "rollback mismatch: frames {frame}..{end} ran differently the second time"
+                    );
+                    mismatches += 1;
+                }
+                frame = end;
             }
             println!("{} transfers over {frames} frames", link.transfers());
+            if check_rollback.is_some() {
+                println!("rollback check: {mismatches} mismatches");
+            }
             for spec in &peek {
                 let (addr, len) = spec.split_once(':').unwrap_or((spec, "1"));
                 let addr = u32::from_str_radix(addr.trim_start_matches("0x"), 16)

@@ -12,7 +12,16 @@ pipit link game.gba --players 2 --save a.sav --save b.sav --frames 9000 \
 
 `--trace-sio` prints every transfer (frame, then the 16-bit word from each
 console); `--screenshot` writes `link-1.png`, `link-2.png`, …; the save files are
-written back afterwards, so a completed trade shows up in them.
+written back afterwards, so a completed trade shows up in them. `--peek
+ADDR[:LEN]` prints memory of every console at the end (Emerald keeps the player
+object at `02037350`, its map coordinates plus seven at `+10`).
+
+`--check-rollback N` does what playing together does when keys arrive late:
+every N frames it snapshots the link, runs on, restores the snapshot and runs
+the same frames again, then compares state digests, and reports any stretch
+that ran differently. A run of the Colosseum scenario with N = 8 (the most
+frames the app ever guesses) reports no mismatches; it is the first thing to
+rerun if a link ever misbehaves only when playing online.
 
 ## A trade in Pokémon Emerald, headless
 

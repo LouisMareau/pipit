@@ -284,6 +284,29 @@ impl AnyLink {
         }
     }
 
+    pub fn save_state(&self) -> Vec<u8> {
+        match self {
+            AnyLink::Gba(link) => link.save_state(),
+            AnyLink::Gbc(link) => link.save_state(),
+        }
+    }
+
+    pub fn load_state(&mut self, data: &[u8]) -> anyhow::Result<()> {
+        match self {
+            AnyLink::Gba(link) => link.load_state(data),
+            AnyLink::Gbc(link) => link.load_state(data),
+        }
+        .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// A digest of every console's state.
+    pub fn state_hash(&self) -> u64 {
+        match self {
+            AnyLink::Gba(link) => link.state_hash(),
+            AnyLink::Gbc(link) => link.state_hash(),
+        }
+    }
+
     /// Each transfer completed since the last call, as the word from each console.
     pub fn take_transfers(&mut self) -> Vec<Vec<u16>> {
         match self {
