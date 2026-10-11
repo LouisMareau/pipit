@@ -146,6 +146,8 @@ process.on("uncaughtException", (error) => {
 });
 if (shot) {
   const { writeFileSync } = await import("node:fs");
+  // PIPIT_OPEN_STATS=1 opens the session details panel on the host before the shot.
+  if (process.env.PIPIT_OPEN_STATS) await host.evaluate("document.querySelector('.link-pill').click(); true");
   writeFileSync(`${shot}-host.png`, await host.screenshot());
   writeFileSync(`${shot}-guest.png`, await guest.screenshot());
   console.log(`screenshots: ${shot}-host.png, ${shot}-guest.png`);

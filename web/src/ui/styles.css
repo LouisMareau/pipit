@@ -1347,18 +1347,73 @@ body[data-chrome="drawer"] .toast {
   display: none;
 }
 
-.link-badge {
+/* The session pill: round trip / delay; click for the details panel. */
+.link-pill {
   display: none;
+  align-items: center;
+  gap: 1px;
   padding: 4px 10px;
+  border: 0;
   border-radius: 999px;
   background: var(--accent);
   color: var(--accent-ink);
+  font: inherit;
   font-size: 13px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  cursor: pointer;
 }
 
-.player.linked .link-badge {
-  display: inline-block;
+.player.linked .link-pill {
+  display: inline-flex;
+}
+
+.link-pill[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--text);
+}
+
+.link-pill-sep {
+  opacity: 0.7;
+  padding: 0 1px;
+}
+
+.link-stats {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 6;
+  min-width: 240px;
+  max-width: calc(100% - 20px);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.4);
+  font-size: 13px;
+}
+
+.link-stats dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 0;
+}
+
+.link-stats dt {
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.link-stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.link-stats-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
 /* The partner's keys have not arrived: the game is held until they do. */

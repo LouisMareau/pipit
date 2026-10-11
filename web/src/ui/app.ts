@@ -119,6 +119,7 @@ export class App {
         <div class="actions">
           <button class="btn btn-icon" data-action="back" title="Library" aria-label="Library">${icon("back")}</button>
           <span class="toolbar-spacer"></span>
+          <button class="link-pill" data-action="link-stats" aria-pressed="false" aria-label="Session details" title="Round trip / delay — click for the session's details"><span class="link-pill-ping">–</span><span class="link-pill-sep">/</span><span class="link-pill-delay">–</span></button>
           <span class="toolbar-controller"></span>
           <button class="btn btn-icon" data-action="pause" title="Pause" aria-label="Pause">${icon("pause")}</button>
           <button class="btn btn-icon" data-action="fast" title="Fast-forward" aria-label="Fast-forward">${icon("fastForward")}</button>
@@ -130,12 +131,24 @@ export class App {
         <div class="screen-box"></div>
         <button class="menu-fab" data-action="menu" title="Menu" aria-label="Menu">${icon("menu", 22)}</button>
         <div class="link-wait">Waiting for your partner…</div>
+        <div class="link-stats hidden" role="dialog" aria-label="Session details">
+          <dl>
+            <dt>Players</dt><dd data-stat="players">—</dd>
+            <dt>Link</dt><dd data-stat="link">—</dd>
+            <dt>Round trip</dt><dd data-stat="ping">—</dd>
+            <dt>Delay</dt><dd data-stat="delay">—</dd>
+            <dt>Rollbacks</dt><dd data-stat="rollbacks">—</dd>
+            <dt>Frame</dt><dd data-stat="frame">—</dd>
+            <dt>Frame rate</dt><dd data-stat="fps">—</dd>
+            <dt>In-game link</dt><dd data-stat="activity">—</dd>
+          </dl>
+          <div class="link-stats-actions"><button class="btn" data-action="copy-link-log">Copy session log</button></div>
+        </div>
       </div>
       <div class="menu-backdrop hidden" data-action="menu"></div>
       <div class="menu hidden">
         <header class="menu-header">
           <h3 class="menu-title"></h3>
-          <span class="link-badge">Linked</span>
           <span class="toolbar-fps muted small"></span>
         </header>
         <div class="menu-actions"></div>
@@ -561,6 +574,10 @@ export class App {
     this.statusFrames = 0;
     const perSecond = activity === undefined ? "?" : String(activity - this.lastActivity);
     this.lastActivity = activity ?? 0;
+    this.lastRate = perSecond;
+    this.lastFps = fps;
+    this.lastGap = maxGapMs;
+    this.refreshLinkStats();
     linkLog(
       `frame ${this.session.frame} · delay ${this.session.delayFrames} · ping ${Math.round(this.lastPing)} ms · rollbacks ${this.session.rollbacks} · ${fps} fps, worst gap ${maxGapMs} ms · in-game link activity ${perSecond}/s`,
     );
@@ -582,18 +599,51 @@ export class App {
     }
   }
 
-  /** " · wireless" when the consoles carry Wireless Adapters, nothing for a cable. */
-  private linkKind(): string {
-    return this.sessionWireless ? " · wireless" : "";
+  private sessionLocal = 0;
+  private lastFps = 0;
+  private lastGap = 0;
+  private lastRate = "?";
+
+  private linkName(): string {
+    return this.sessionWireless ? "Wireless Adapters" : "Link cable";
+  }
+
+  /** The pill (round trip / delay) and the details panel, from the latest numbers. */
+  private refreshLinkStats() {
+    const session = this.session;
+    if (!session) return;
+    const ping = Math.round(this.lastPing);
+    const delay = session.delayFrames;
+    this.player.querySelector(".link-pill-ping")!.textContent = String(ping);
+    this.player.querySelector(".link-pill-delay")!.textContent = String(delay);
+    this.player.querySelector<HTMLElement>(".link-pill")!.title =
+      `${ping} ms round trip, keys land ${delay} frames later — click for the session's details`;
+    const set = (stat: string, text: string) => {
+      this.player.querySelector(`[data-stat="${stat}"]`)!.textContent = text;
+    };
+    set("players", this.sessionPlayers ? `${this.sessionPlayers} players, you are player ${this.sessionLocal + 1}` : "—");
+    set("link", this.linkName());
+    set("ping", `${ping} ms`);
+    set("delay", `${delay} frames (${Math.round((delay * 1000) / 60)} ms)`);
+    set("rollbacks", String(session.rollbacks));
+    set("frame", String(session.frame));
+    set("fps", this.lastFps ? `${this.lastFps} fps, worst gap ${this.lastGap} ms` : "—");
+    set("activity", `${this.lastRate}/s ${this.sessionWireless ? "adapter wake-ups" : "cable transfers"}`);
+  }
+
+  /** Shows or hides the details panel in the corner of the screen. */
+  private toggleLinkStats(open?: boolean) {
+    const panel = this.player.querySelector(".link-stats")!;
+    const show = open ?? panel.classList.contains("hidden");
+    panel.classList.toggle("hidden", !show);
+    this.player.querySelector(".link-pill")!.setAttribute("aria-pressed", String(show));
+    if (show) this.refreshLinkStats();
   }
 
   private showPing(ms: number) {
     this.lastPing = ms;
     if (!this.session) return;
-    const badge = this.player.querySelector(".link-badge")!;
-    badge.textContent = this.sessionPlayers
-      ? `Linked · ${this.sessionPlayers} players${this.linkKind()} · ${Math.round(ms)} ms · delay ${this.session.delayFrames}`
-      : "Linked";
+    this.refreshLinkStats();
     if (!this.player.classList.contains("linked")) this.linkDialog.setStatus(`Connected, ${Math.round(ms)} ms round trip`);
   }
 
@@ -607,14 +657,15 @@ export class App {
     this.player.classList.add("linked");
     this.player.querySelector('[data-action="link"]')!.classList.add("hidden");
     this.player.querySelector('[data-action="leave-link"]')!.classList.remove("hidden");
-    this.player.querySelector('[data-action="copy-link-log"]')!.classList.remove("hidden");
+    this.player.querySelector('.menu [data-action="copy-link-log"]')!.classList.remove("hidden");
     this.audio.clear();
     this.stalledTicks = 0;
     // The worker reports `loaded`, which starts the display loop.
     this.emulator.load(rom, null, null, this.current?.system ?? "gba", start.link, start.epoch);
     this.sessionPlayers = start.link.players;
     this.sessionWireless = start.link.wireless === true;
-    this.player.querySelector(".link-badge")!.textContent = `Linked · ${start.link.players} players${this.linkKind()}`;
+    this.sessionLocal = start.link.local;
+    this.refreshLinkStats();
     // Watching: any console of the link can be shown; keys still go to your own.
     const view = this.player.querySelector<HTMLSelectElement>("[data-view]")!;
     view.replaceChildren(
@@ -688,7 +739,8 @@ export class App {
     this.player.classList.remove("linked", "waiting");
     this.player.querySelector('[data-action="link"]')!.classList.remove("hidden");
     this.player.querySelector('[data-action="leave-link"]')!.classList.add("hidden");
-    this.player.querySelector('[data-action="copy-link-log"]')!.classList.add("hidden");
+    this.player.querySelector('.menu [data-action="copy-link-log"]')!.classList.add("hidden");
+    this.toggleLinkStats(false);
     this.player.querySelector(".link-view")!.classList.add("hidden");
     this.sideScreens.clear();
     this.emulator.setSideScreens(false);
@@ -809,6 +861,9 @@ export class App {
           break;
         case "copy-link-log":
           void this.copyLinkLog();
+          break;
+        case "link-stats":
+          this.toggleLinkStats();
           break;
         case "leave-link":
           this.setMenuOpen(false);

@@ -253,12 +253,17 @@ await evaluate("document.querySelector('[data-action=start]').click(); true");
 await sleep(4500);
 const linkState = (page = { evaluate }) =>
   page.evaluate(
-    `(() => { const p = document.querySelector('.player'); const badge = document.querySelector('.link-badge'); return { linked: p.classList.contains('linked'), waiting: p.classList.contains('waiting'),
-      badge: getComputedStyle(badge).display !== 'none', badgeText: badge.textContent, fps: document.querySelector('.toolbar-fps').textContent,
+    `(() => { const p = document.querySelector('.player'); const pill = document.querySelector('.link-pill'); const stats = document.querySelector('.link-stats'); return { linked: p.classList.contains('linked'), waiting: p.classList.contains('waiting'),
+      pill: getComputedStyle(pill).display !== 'none', pillText: pill.textContent, statsText: stats.textContent, statsOpen: !stats.classList.contains('hidden'), fps: document.querySelector('.toolbar-fps').textContent,
       frame: Number(p.dataset.linkFrame), delay: Number(p.dataset.linkDelay), rollbacks: Number(p.dataset.linkRollbacks),
       toast: document.querySelector('.toast')?.textContent ?? '' }; })()`,
   );
 const linkHost = await linkState();
+// The pill opens the details panel in the corner and closes it again.
+await evaluate("document.querySelector('.link-pill').click(); true");
+const statsOpened = await linkState();
+await evaluate("document.querySelector('.link-pill').click(); true");
+const statsClosed = await linkState();
 const linkGuest = await linkState(guest);
 const linkGuest2 = await linkState(guest2);
 await sleep(1000);
@@ -589,7 +594,7 @@ if (
   !landingOk(landingPhone) ||
   (gb &&
     (gb.listed !== 1 || gb.system !== "gbc" || gb.width !== 160 || gb.height !== 144 || gb.lit === 0 || !gb.shouldersHidden ||
-      !gb.link.host.linked || !gb.link.guest.linked || !/2 players/.test(gb.link.host.badgeText) || gb.link.guest.frame < 100)) ||
+      !gb.link.host.linked || !gb.link.guest.linked || !/2 players/.test(gb.link.host.statsText) || gb.link.guest.frame < 100)) ||
   !lobby.canStart ||
   !linkHost.linked ||
   !linkGuest.linked ||
@@ -597,11 +602,15 @@ if (
   linkHost.waiting ||
   linkGuest.waiting ||
   linkGuest2.waiting ||
-  !linkHost.badge ||
-  !/3 players · wireless/.test(linkHost.badgeText) ||
+  !linkHost.pill ||
+  !/^\d+\/\d+$/.test(linkHost.pillText) ||
+  !statsOpened.statsOpen ||
+  statsClosed.statsOpen ||
+  !/3 players, you are player 1/.test(statsOpened.statsText) ||
+  !/Wireless Adapters/.test(statsOpened.statsText) ||
   !/started: 3 players, delay \d+/.test(sessionLog) ||
   !/frame \d+ · delay \d+ · ping \d+ ms · rollbacks \d+ · \d+ fps/.test(sessionLog) ||
-  !/wireless/.test(linkGuest2.badgeText) ||
+  !/Wireless Adapters/.test(linkGuest2.statsText) ||
   /Session over/.test(linkHost.toast) ||
   !linkAfterKeys.linked ||
   !whileWatching.linked ||
