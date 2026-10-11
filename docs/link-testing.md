@@ -116,6 +116,21 @@ above, the attendant for the Union Room is reached with Down (one tile, past the
 counter's end), Left for four tiles, Up (one tile), Up again to face it; then A
 every 45 frames through "enter?", the save prompt and the door.
 
+A trade over the adapters, through the Wireless Club, is the test the adapter
+was built against. With an adapter the **right-hand** counter is the Direct
+Corner; from the counter save, both consoles press A every 45 frames from
+frame 820 (the attendant, Trade, the save prompt, the explanations). At frame
+2750 the "Join group / Become leader" menu is open: the leader presses Down
+there, the joiner nothing. From 3655 A every 45 frames answers the join request
+and the OKs; the leader presses Start at 3300 and 3600 to begin. Both are in
+the Trade Center by frame 4200 and the trade goes as over the cable, 550 frames
+later: Up 12 at 4300, Left/Right 10 at 4340, Up 28 at 4380 onto the chairs, the
+menu at 5100 (joiner Right at 5150, A 5200, Down 5300, A 5350, A 5500, A
+5700), done by frame 10500 with console 1 holding DUPE, DUPE and console 2
+MUDKIP, MUDKIP. `--trace-rfu` shows the joiner connecting (`1F`, `20`, `21`)
+and then every frame crossing: the child's `25` with its frame, the host's `24`
+and `26`, and the `<- 28` wake-ups.
+
 How the adapter is modelled is in [architecture.md](architecture.md): the
 protocol words in `crates/gba/src/rfu.rs`, what travels between adapters in
 `crates/gba/src/wireless.rs`. Data frames cross in rounds; a round runs as soon
