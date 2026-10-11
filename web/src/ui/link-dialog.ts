@@ -39,7 +39,7 @@ export class LinkDialog {
           <h3>Host</h3>
           <div class="link-row">
             <button class="btn btn-primary" data-action="host">Host a game</button>
-            <code class="link-code hidden" aria-live="polite"></code>
+            <button class="link-code hidden" type="button" data-action="copy-code" title="Click to copy the code" aria-live="polite"></button>
           </div>
           <label class="row link-mode"><span>Link</span>
             <select data-link="mode">
@@ -102,6 +102,9 @@ export class LinkDialog {
         case "start":
           this.onStart();
           break;
+        case "copy-code":
+          void this.copyCode();
+          break;
         case "copy-log":
           this.onCopyLog();
           break;
@@ -143,6 +146,33 @@ export class LinkDialog {
     const el = this.element.querySelector<HTMLElement>(".link-code")!;
     el.textContent = code ?? "";
     el.classList.toggle("hidden", code === null);
+    el.classList.remove("copied");
+  }
+
+  /** Puts the code on the clipboard; the button shows a tick for a moment. */
+  private async copyCode() {
+    const el = this.element.querySelector<HTMLElement>(".link-code")!;
+    const code = el.textContent ?? "";
+    if (!code) return;
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(code);
+      ok = true;
+    } catch {
+      // No clipboard API (an insecure page, an old browser): the selection route.
+      const area = document.createElement("textarea");
+      area.value = code;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.append(area);
+      area.select();
+      ok = document.execCommand("copy");
+      area.remove();
+    }
+    this.setStatus(ok ? "Code copied; send it to your friends." : "Could not copy; select the code and copy it yourself.");
+    el.classList.toggle("copied", ok);
+    if (ok) setTimeout(() => el.classList.remove("copied"), 1500);
   }
 
   /** Host: who is in; 0 hides the lobby. Start needs at least two. */

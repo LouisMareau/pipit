@@ -236,6 +236,12 @@ await openLinkDialog({ evaluate });
 await evaluate("document.querySelector('[data-action=host]').click(); true");
 await sleep(400);
 const code = await evaluate("document.querySelector('.link-code').textContent");
+// The code is a button that copies itself.
+await send("Browser.grantPermissions", { permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"], origin: new URL(url).origin }).catch(() => {});
+await evaluate("document.querySelector('.link-code').click(); true");
+await sleep(300);
+const codeStatus = await evaluate("document.querySelector('.link-status').textContent");
+console.log(`code ${code}: ${codeStatus}`);
 for (const page of [guest, guest2]) {
   await openLinkDialog(page);
   await page.evaluate(
@@ -596,6 +602,7 @@ if (
     (gb.listed !== 1 || gb.system !== "gbc" || gb.width !== 160 || gb.height !== 144 || gb.lit === 0 || !gb.shouldersHidden ||
       !gb.link.host.linked || !gb.link.guest.linked || !/2 players/.test(gb.link.host.statsText) || gb.link.guest.frame < 100)) ||
   !lobby.canStart ||
+  !/copied/.test(codeStatus) ||
   !linkHost.linked ||
   !linkGuest.linked ||
   !linkGuest2.linked ||
