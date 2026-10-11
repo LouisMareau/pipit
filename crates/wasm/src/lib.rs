@@ -306,6 +306,15 @@ impl Emulator {
         .map_err(|e| JsError::new(&e.to_string()))
     }
 
+    /// How much the in-game link has done since the start: cable transfers, or
+    /// "data ready" wake-ups from the adapters. Flat while a game's link is stuck.
+    pub fn link_activity(&self) -> u32 {
+        match &self.core {
+            Core::Gba(link) => (link.transfers() + link.wakes()) as u32,
+            Core::Gbc(link) => link.transfers() as u32,
+        }
+    }
+
     /// A 32-bit digest of every console's state, to check that linked players agree.
     pub fn state_hash(&self) -> u32 {
         let h = match &self.core {

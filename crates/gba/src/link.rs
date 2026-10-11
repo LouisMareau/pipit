@@ -38,6 +38,8 @@ pub struct Link {
     wireless: bool,
     /// Adapter traffic, while tracing (see `set_trace`).
     pub(crate) log: Option<Vec<String>>,
+    /// "Data ready" commands sent by the adapters (see `wakes`).
+    pub(crate) wakes: u64,
 }
 
 impl Link {
@@ -84,6 +86,7 @@ impl Link {
             transfers: 0,
             wireless: false,
             log: None,
+            wakes: 0,
         }
     }
 
@@ -148,6 +151,11 @@ impl Link {
     /// Transfers completed since the cable was connected.
     pub fn transfers(&self) -> u64 {
         self.transfers
+    }
+
+    /// "Data ready" commands the adapters have sent their consoles.
+    pub fn wakes(&self) -> u64 {
+        self.wakes
     }
 
     /// The words of every transfer completed since the last call.

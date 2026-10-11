@@ -5,6 +5,7 @@ import { takeScreenshot } from "../features/screenshots";
 import { AudioOutput } from "../platform/audio";
 import { EmulatorClient } from "../platform/emulator-client";
 import { Input, keyLabel } from "../platform/input";
+import { linkLog, linkLogText } from "../platform/link-log";
 import type { Pending, Role, SessionStart } from "../platform/netplay";
 import { connect, generateCode, hashRom, LinkSession, listen } from "../platform/netplay";
 import { FramePacer } from "../platform/pacer";
@@ -28,6 +29,8 @@ interface TestHooks {
   /** Keys per game frame on a link, as `frame=KEYS,…` (see `parseKeyScript`). */
   keyScript: string | null;
   save: () => Promise<ArrayBuffer>;
+  /** The session log so far (what the browser console shows under "[pipit link]"). */
+  linkLog: () => string;
 }
 
 /** `300=START,330=,600=A+RIGHT`: the keys held from each frame on (names as in `Key`). */
@@ -91,7 +94,7 @@ export class App {
   private heldKeys = 0;
   private stalledTicks = 0;
   /** Test hooks (see scripts/): scripted keys on a link, and a copy of the save. */
-  private hooks: TestHooks = { keyScript: null, save: () => this.copyOfSave() };
+  private hooks: TestHooks = { keyScript: null, save: () => this.copyOfSave(), linkLog: () => linkLogText() };
   private keyScript: ScriptedKeys | null = null;
   private saveWaiters: ((data: ArrayBuffer) => void)[] = [];
 
@@ -145,6 +148,7 @@ export class App {
         <h4>Link cable</h4>
         <button class="btn" data-action="link">Play together…</button>
         <button class="btn hidden" data-action="leave-link">Leave the session</button>
+        <button class="btn hidden" data-action="copy-link-log" title="What the session did, for bug reports; the browser console (F12) shows it too">Copy session log</button>
         <label class="row link-view hidden"><span>Watch</span><select data-view></select></label>
         <label class="row link-side"><input type="checkbox" data-setting="sideScreens" /><span>Show the other players&#8217; screens beside yours</span></label>
         <h4>Keyboard</h4>
@@ -290,7 +294,8 @@ export class App {
     this.emulator.on("hash", (frame, hash) => this.session?.reportHash(frame, hash));
     const fpsLabel = this.player.querySelector<HTMLElement>(".toolbar-fps")!;
     let lastFpsText = "";
-    this.emulator.on("frame", (pixels, audio, fps, maxGapMs, sides) => {
+    this.emulator.on("frame", (pixels, audio, fps, maxGapMs, sides, activity) => {
+      this.logLinkStatus(fps, maxGapMs, activity);
       this.screen.draw(pixels);
       this.emulator.returnFrame(pixels);
       for (const side of sides ?? []) {
@@ -462,6 +467,7 @@ export class App {
     });
     this.linkDialog.onHost = () => void this.startSession("host", generateCode());
     this.linkDialog.onJoin = (code) => void this.startSession("guest", code);
+    this.linkDialog.onCopyLog = () => void this.copyLinkLog();
     this.linkDialog.onStart = () => {
       if (!this.session) return;
       this.session.wireless = this.linkDialog.wireless;
@@ -501,6 +507,7 @@ export class App {
     if (!rom) return;
     const romHash = await hashRom(rom);
     const local = new URLSearchParams(location.search).get("link") === "local";
+    linkLog(`${role} with code ${code} (${local ? "tabs of this browser" : "online"}), ${(entry.system ?? "gba").toUpperCase()} ROM ${romHash.slice(0, 8)}`);
     let session: LinkSession;
     if (role === "host") {
       const listener = await this.settle(listen(code, local, this.settings.connection), entry);
@@ -542,6 +549,38 @@ export class App {
 
   private sessionPlayers = 0;
   private sessionWireless = false;
+  private lastPing = 0;
+  /** Frames shown since the last status line in the session log. */
+  private statusFrames = 0;
+  private lastActivity = 0;
+
+  /** Once a second while linked: where the session stands, in the session log. */
+  private logLinkStatus(fps: number, maxGapMs: number, activity: number | undefined) {
+    if (!this.session || !this.player.classList.contains("linked")) return;
+    if (++this.statusFrames < 60) return;
+    this.statusFrames = 0;
+    const perSecond = activity === undefined ? "?" : String(activity - this.lastActivity);
+    this.lastActivity = activity ?? 0;
+    linkLog(
+      `frame ${this.session.frame} · delay ${this.session.delayFrames} · ping ${Math.round(this.lastPing)} ms · rollbacks ${this.session.rollbacks} · ${fps} fps, worst gap ${maxGapMs} ms · in-game link activity ${perSecond}/s`,
+    );
+  }
+
+  /** Puts the session log on the clipboard (or downloads it), for bug reports. */
+  private async copyLinkLog() {
+    const text = linkLogText() || "(nothing yet: no session in this page)";
+    try {
+      await navigator.clipboard.writeText(text);
+      this.toast("Session log copied");
+    } catch {
+      const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "pipit-session.log";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
 
   /** " · wireless" when the consoles carry Wireless Adapters, nothing for a cable. */
   private linkKind(): string {
@@ -549,6 +588,7 @@ export class App {
   }
 
   private showPing(ms: number) {
+    this.lastPing = ms;
     if (!this.session) return;
     const badge = this.player.querySelector(".link-badge")!;
     badge.textContent = this.sessionPlayers
@@ -567,6 +607,7 @@ export class App {
     this.player.classList.add("linked");
     this.player.querySelector('[data-action="link"]')!.classList.add("hidden");
     this.player.querySelector('[data-action="leave-link"]')!.classList.remove("hidden");
+    this.player.querySelector('[data-action="copy-link-log"]')!.classList.remove("hidden");
     this.audio.clear();
     this.stalledTicks = 0;
     // The worker reports `loaded`, which starts the display loop.
@@ -647,6 +688,7 @@ export class App {
     this.player.classList.remove("linked", "waiting");
     this.player.querySelector('[data-action="link"]')!.classList.remove("hidden");
     this.player.querySelector('[data-action="leave-link"]')!.classList.add("hidden");
+    this.player.querySelector('[data-action="copy-link-log"]')!.classList.add("hidden");
     this.player.querySelector(".link-view")!.classList.add("hidden");
     this.sideScreens.clear();
     this.emulator.setSideScreens(false);
@@ -764,6 +806,9 @@ export class App {
         case "link":
           this.setMenuOpen(false);
           this.openLinkDialog();
+          break;
+        case "copy-link-log":
+          void this.copyLinkLog();
           break;
         case "leave-link":
           this.setMenuOpen(false);

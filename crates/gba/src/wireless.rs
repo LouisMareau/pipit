@@ -260,6 +260,9 @@ impl Link {
     }
 
     fn rfu_send(&mut self, i: usize, cmd: u8, payload: &[u32]) {
+        if cmd == rfu::CMD_DATA_READY_AND_CHANGE {
+            self.wakes += 1;
+        }
         if let Some(log) = &mut self.log {
             log.push(format!("{}: <- {cmd:02X} {}", i + 1, hex(payload)));
         }

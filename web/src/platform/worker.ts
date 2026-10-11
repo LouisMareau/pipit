@@ -270,7 +270,8 @@ function postFrame() {
       transfer.push(side);
     }
   }
-  post({ type: "frame", pixels, audio, fps, maxGapMs, sides }, transfer);
+  const activity = linked ? emulator.link_activity() : undefined;
+  post({ type: "frame", pixels, audio, fps, maxGapMs, sides, activity }, transfer);
 }
 
 function sendSave() {

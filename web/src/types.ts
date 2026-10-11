@@ -84,6 +84,8 @@ export type FromWorker =
       maxGapMs: number;
       /** On a link with side screens on: the other consoles' pictures. */
       sides?: { player: number; pixels: ArrayBuffer }[];
+      /** On a link: how much the in-game link has done so far (see `Emulator.link_activity`). */
+      activity?: number;
     }
   /** On a link: a digest of every console's state after `frame` frames (see `netplay.ts`). */
   | { type: "hash"; frame: number; hash: number }

@@ -270,6 +270,7 @@ await sleep(600);
 await guest2.send("Input.dispatchKeyEvent", { type: "keyUp", code: "ArrowRight", key: "ArrowRight", windowsVirtualKeyCode: 39 });
 await sleep(2500);
 const linkAfterKeys = await linkState();
+const sessionLog = await evaluate("window.pipit.linkLog()");
 // Watching: the host switches to player 2's console and back; the session must not notice.
 const watch = (player) => evaluate(`(() => { const s = document.querySelector('[data-view]'); s.value = '${player}'; s.dispatchEvent(new Event('change')); return s.value; })()`);
 await watch(1);
@@ -598,6 +599,8 @@ if (
   linkGuest2.waiting ||
   !linkHost.badge ||
   !/3 players · wireless/.test(linkHost.badgeText) ||
+  !/started: 3 players, delay \d+/.test(sessionLog) ||
+  !/frame \d+ · delay \d+ · ping \d+ ms · rollbacks \d+ · \d+ fps/.test(sessionLog) ||
   !/wireless/.test(linkGuest2.badgeText) ||
   /Session over/.test(linkHost.toast) ||
   !linkAfterKeys.linked ||

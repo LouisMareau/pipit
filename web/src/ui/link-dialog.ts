@@ -11,6 +11,8 @@ export class LinkDialog {
   onJoin: (code: string) => void = () => {};
   /** The host starts the game with everyone who is in. */
   onStart: () => void = () => {};
+  /** The session log is wanted on the clipboard. */
+  onCopyLog: () => void = () => {};
   onCancel: () => void = () => {};
   onSettings: (settings: ConnectionSettings) => void = () => {};
 
@@ -67,6 +69,7 @@ export class LinkDialog {
           <p class="muted small">A relay is only needed when both players sit behind strict NATs. See docs/hosting-online-play.md.</p>
         </details>
         <footer class="modal-footer">
+          <button class="btn" data-action="copy-log" title="What the session did, for bug reports; the browser console (F12) shows it too">Copy session log</button>
           <button class="btn" data-action="close">Cancel</button>
         </footer>
       </div>`;
@@ -98,6 +101,9 @@ export class LinkDialog {
           break;
         case "start":
           this.onStart();
+          break;
+        case "copy-log":
+          this.onCopyLog();
           break;
       }
     });

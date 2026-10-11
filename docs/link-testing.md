@@ -83,6 +83,21 @@ connection's first seven seconds, which makes the host raise the delay and
 forces guessed keys and rollbacks; the test asserts both happened. The trade
 script accepts the same URL, so the Emerald trade can be run with lag too.
 
+## The session log
+
+Everything playing together does is written to the browser console (F12,
+Console) under `[pipit link]`: hosting and joining, who joined the lobby, the
+start (players, delay, round trips, cable or adapters), every delay change,
+keys that came late and the rollbacks they caused, stalls while waiting for a
+player's keys, the state-digest checks, the end and its reason. Once a second
+while linked a status line gives the frame, the delay, the ping, the rollback
+count, the frame rate with the worst gap, and the in-game link activity (cable
+transfers, or the adapters' "data ready" wake-ups, per second): a game whose
+link has broken shows that number dropping to zero. "Copy session log" (in the
+⋯ menu while linked, and in the Play-together dialog afterwards) puts the whole
+log on the clipboard for a bug report; `window.pipit.linkLog()` returns it to
+scripts. Nothing in the log identifies a player beyond the player number.
+
 ## Where the cable club is
 
 In Emerald, FireRed and LeafGreen only the **right-hand** counter upstairs in a

@@ -13,6 +13,7 @@
 import type { DataConnection, PeerOptions } from "peerjs";
 import { Peer } from "peerjs";
 import type { ConnectionSettings, LinkLoad } from "../types";
+import { linkLog } from "./link-log";
 
 export const MAX_PLAYERS = 4;
 const FRAME_MS = 1000 / 59.7275;
@@ -332,6 +333,8 @@ export class LinkSession {
   private applied = new Map<number, number[]>();
   /** Frames run with guessed keys that have not been confirmed yet. */
   private guessedFrames = new Set<number>();
+  /** The last tick was held up (logged once per stall). */
+  private stalled = false;
   /** Every frame up to here ran with keys everyone has confirmed. */
   private settled = -1;
   /** The last keys seen from each player: the guess for frames not heard about yet. */
@@ -375,6 +378,7 @@ export class LinkSession {
     listener.onGuest = (transport) => session.addGuest(transport);
     session.pingTimer = setInterval(() => session.pingAll(), PING_EVERY_MS);
     session.onStatus("Waiting for players…");
+    linkLog(`hosting: ROM ${romHash.slice(0, 8)}, save ${save?.byteLength ?? 0} bytes, up to ${session.maxPlayers} players`);
     return session;
   }
 
@@ -389,6 +393,7 @@ export class LinkSession {
     session.helloTimer = setInterval(hello, 1000);
     session.pingTimer = setInterval(() => transport.send({ type: "ping", t: performance.now() }), PING_EVERY_MS);
     session.onStatus("Joining…");
+    linkLog(`joining: ROM ${romHash.slice(0, 8)}, save ${save?.byteLength ?? 0} bytes`);
     return session;
   }
 
@@ -397,6 +402,7 @@ export class LinkSession {
   private addGuest(transport: Transport) {
     if (this.closed) return;
     if (this.started || this.guests.length >= this.maxPlayers - 1) {
+      linkLog(`refused a guest: ${this.started ? "already started" : "no room left"}`);
       transport.send({ type: "refuse", reason: this.started ? "already started" : "no room left" });
       transport.close();
       return;
@@ -423,6 +429,7 @@ export class LinkSession {
   }
 
   private dropGuest(guest: Guest) {
+    linkLog(`player ${guest.player + 1} left the lobby`);
     this.guests = this.guests.filter((g) => g !== guest);
     this.guests.forEach((g, i) => (g.player = i + 1));
     this.announceLobby();
@@ -438,10 +445,12 @@ export class LinkSession {
           guest.transport.close();
           this.dropGuest(guest);
           this.onStatus("Someone tried to join with a different ROM");
+          linkLog(`refused a guest: different ROM (${message.romHash.slice(0, 8)})`);
           return;
         }
         guest.save = message.save;
         guest.ready = true;
+        linkLog(`player ${guest.player + 1} joined the lobby (save ${message.save?.byteLength ?? 0} bytes)`);
         this.announceLobby();
         break;
       case "ping":
@@ -508,6 +517,8 @@ export class LinkSession {
     this.delay = this.chooseDelay();
     const epoch = Math.floor(Date.now() / 1000);
     const saves = [this.save, ...ready.map((g) => g.save)];
+    const trips = ready.map((g) => Math.round(median(g.rtts) ?? 0)).join("/");
+    linkLog(`started: ${this.players} players, delay ${this.delay} (round trips ${trips} ms), ${this.wireless ? "Wireless Adapters" : "link cable"}, epoch ${epoch}`);
     for (const guest of ready) {
       guest.transport.send({
         type: "welcome",
@@ -537,6 +548,7 @@ export class LinkSession {
         this.players = message.players;
         this.delay = message.delay;
         this.wireless = message.wireless === true;
+        linkLog(`welcome: player ${message.local + 1} of ${message.players}, delay ${message.delay}, ${this.wireless ? "Wireless Adapters" : "link cable"}, epoch ${message.epoch}`);
         this.begin({
           link: { players: message.players, local: message.local, saves: message.saves, wireless: this.wireless },
           epoch: message.epoch,
@@ -550,6 +562,7 @@ export class LinkSession {
         this.receiveInput(message.frame, message.player, message.keys);
         break;
       case "delay":
+        linkLog(`delay set by the host: ${this.delay} → ${message.value}`);
         this.delay = message.value;
         break;
       case "ping":
@@ -597,7 +610,10 @@ export class LinkSession {
     this.storeKeys(frame, player, keys);
     this.lastKnown[player] = keys;
     const used = this.applied.get(frame);
-    if (frame < this.frame && used && used[player] !== keys) this.rollbackTo(frame);
+    if (frame < this.frame && used && used[player] !== keys) {
+      linkLog(`player ${player + 1}'s keys for frame ${frame} came ${this.frame - frame} frames late and differ from the guess`);
+      this.rollbackTo(frame);
+    }
     this.settle();
   }
 
@@ -636,7 +652,19 @@ export class LinkSession {
       this.lastPublished = ahead;
     }
     const { keys, guessed } = this.resolve(f);
-    if (guessed && f - this.settled > MAX_GUESSED_FRAMES) return null;
+    if (guessed && f - this.settled > MAX_GUESSED_FRAMES) {
+      if (!this.stalled) {
+        this.stalled = true;
+        const row = this.inputs.get(f) ?? [];
+        const missing = Array.from({ length: this.players }, (_, p) => p + 1).filter((p) => row[p - 1] === undefined);
+        linkLog(`stalled at frame ${f}: waiting for keys from player ${missing.join(", ")} (settled through frame ${this.settled})`);
+      }
+      return null;
+    }
+    if (this.stalled) {
+      this.stalled = false;
+      linkLog(`resumed at frame ${f}`);
+    }
     this.applied.set(f, keys);
     if (guessed) this.guessedFrames.add(f);
     this.frame = f + 1;
@@ -657,6 +685,7 @@ export class LinkSession {
       snapshots.push(guessed);
     }
     this.rollbacks++;
+    linkLog(`rollback to frame ${frame}: ${rows.length} frames re-run, ${snapshots.filter(Boolean).length} still guessed`);
     this.onRollback(frame, rows, snapshots);
   }
 
@@ -687,6 +716,8 @@ export class LinkSession {
   }
 
   private setDelay(value: number) {
+    const trips = this.guests.map((g) => Math.round(median(g.rtts) ?? 0)).join("/");
+    linkLog(`delay ${this.delay} → ${value} (round trips ${trips} ms)`);
     this.delay = value;
     this.sendAll({ type: "delay", value });
   }
@@ -723,12 +754,14 @@ export class LinkSession {
     if (mine === undefined || !theirs || theirs.size < this.guests.length) return;
     this.ownHashes.delete(frame);
     this.guestHashes.delete(frame);
-    for (const hash of theirs.values()) {
+    for (const [player, hash] of theirs) {
       if (hash !== mine) {
+        linkLog(`state digests differ at frame ${frame}: host ${mine.toString(16)}, player ${player + 1} ${hash.toString(16)}`);
         this.endAll("The games drifted apart");
         return;
       }
     }
+    if (frame % 600 === 0) linkLog(`state digests agree at frame ${frame}`);
   }
 
   leave() {
@@ -745,6 +778,7 @@ export class LinkSession {
   }
 
   private finish(reason: string) {
+    linkLog(`session ended: ${reason}`);
     if (this.pingTimer !== null) clearInterval(this.pingTimer);
     if (this.helloTimer !== null) clearInterval(this.helloTimer);
     for (const guest of this.guests) safeClose(guest.transport);
