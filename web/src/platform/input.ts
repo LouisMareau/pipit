@@ -3,10 +3,11 @@
 // Keyboard: every action (GBA key, fast-forward, pause) is bound to one
 // `KeyboardEvent.code`; the user can rebind them in the settings.
 //
-// Controllers: the browser reports them through the Gamepad API (Chrome only
-// exposes a pad after a button is pressed on it). One pad is *active* at a time
-// and contributes only while controller input is enabled; the keyboard always
-// works. The first pad detected switches controller input on automatically.
+// Controllers: the browser reports them through the Gamepad API, and on
+// Windows that includes virtual pads and receivers that never say anything.
+// A listed pad becomes *active* once a button is pressed on it (or the toggle
+// picks it); one pad is active at a time and contributes only while
+// controller input is enabled; the keyboard always works.
 // Each pad reads through a mapping (action → button index) that the user can
 // change in the controller settings; emulator actions are bindable there too.
 
@@ -214,8 +215,9 @@ export class Input {
     this.resetGamepadState();
   }
 
-  /** Switches controller input on or off without forgetting the active pad. */
+  /** Switches controller input on or off without forgetting the active pad; on, with none active yet, takes the first listed. */
   setGamepadEnabled(enabled: boolean) {
+    if (enabled && this.active === null && this.detected.length > 0) this.active = this.detected[0]!.index;
     this.enabled = enabled && this.active !== null;
     this.resetGamepadState();
     this.onGamepads(this.gamepadState());
@@ -315,12 +317,12 @@ export class Input {
 
     if (this.active !== null && !detected.some((p) => p.index === this.active)) {
       this.active = null;
+      this.enabled = false;
     }
-    if (this.active === null && detected.length > 0) {
-      // A controller appeared: it becomes the input device.
-      this.active = detected[0]!.index;
-      this.enabled = true;
-    }
+    // A controller that appears is only listed: it becomes the input device
+    // once a button is pressed on it (the poll watches for that). Windows
+    // lists virtual pads and receivers that never say anything, and a
+    // controller that was already there when the app opened is no news.
     if (detected.length === 0) {
       this.enabled = false;
       this.resetGamepadState();
@@ -337,7 +339,16 @@ export class Input {
       this.pollTimer = requestAnimationFrame(poll);
       // Connection changes are not always announced; look every half second.
       if (++this.pollCount % 30 === 0) this.refreshGamepads();
-      const pad = this.active !== null ? navigator.getGamepads()[this.active] : null;
+      if (this.active === null) {
+        // The first listed controller to show input wakes up as the input device.
+        const woken = this.detected.find((p) => {
+          const pad = navigator.getGamepads()[p.index];
+          return pad !== null && pad !== undefined && (pad.buttons.some((b) => b.pressed) || pad.axes.some((a) => Math.abs(a) > 0.5));
+        });
+        if (woken) this.setActiveGamepad(woken.index);
+        return;
+      }
+      const pad = navigator.getGamepads()[this.active];
       if (!pad) return;
 
       if (this.buttonCapture) {
