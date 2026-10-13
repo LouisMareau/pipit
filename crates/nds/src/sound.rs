@@ -548,7 +548,7 @@ mod tests {
         mem.0[..4].fill(0x40);
         let mut sound = Sound::new();
         setup(&mut sound, &mem, 1, 0, 1, 0, 1);
-        sound.write_io(0x412, 0x8000 | 1 << 11 | 0, 0xFFFF, &mem); // pan 0: all left
+        sound.write_io(0x412, 0x8000 | 1 << 11, 0xFFFF, &mem); // pan 0: all left
         let (l, r) = next(&mut sound, &mut mem);
         assert!(l > 0 && r == 0);
         // Half the master volume halves the output.
