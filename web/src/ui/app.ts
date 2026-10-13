@@ -13,6 +13,10 @@ import * as storage from "../platform/storage";
 import type { ControllerMapping, DsUser, ResolvedTouchLayout, RomEntry, Settings, Slot2Load, TouchLayout } from "../types";
 import { DEFAULT_CONNECTION, DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key, PEN_DOWN, PEN_INCLUDED, SAVE_TYPES, STATE_SLOTS } from "../types";
 import { DsSettings } from "./ds-settings";
+import { TransferDialog } from "./transfer-dialog";
+import type { OfferView, ReceiveChoice, SendChoice } from "./transfer-dialog";
+import { TransferGuest, TransferHost } from "../platform/transfer";
+import type { Items, Offer, Received } from "../platform/transfer";
 import { ConfirmDialog } from "./confirm-dialog";
 import { ControllerSettings } from "./controller-settings";
 import { ControllerToggle } from "./controller-toggle";
@@ -32,6 +36,11 @@ interface TestHooks {
   save: () => Promise<ArrayBuffer>;
   /** The session log so far (what the browser console shows under "[pipit link]"). */
   linkLog: () => string;
+  /** The library's saves and entries, for the transfer checks. */
+  putSave: (id: string, data: ArrayBuffer) => Promise<void>;
+  getSave: (id: string) => Promise<ArrayBuffer | null>;
+  listRoms: () => Promise<RomEntry[]>;
+  refreshLibrary: () => Promise<void>;
 }
 
 /** `300=START,330=,600=A+RIGHT`: the keys held from each frame on (names as in `Key`). */
@@ -74,6 +83,14 @@ export class App {
   private controllerSettings = new ControllerSettings();
   private keyboardSettings = new KeyboardSettings();
   private dsSettings = new DsSettings();
+  // Sending a game to another device, or receiving one (see `platform/transfer.ts`).
+  private transferDialog = new TransferDialog();
+  private transferHost: TransferHost | null = null;
+  private transferGuest: TransferGuest | null = null;
+  private transferEntry: RomEntry | null = null;
+  private transferRom: ArrayBuffer | null = null;
+  private transferOffer: OfferView | null = null;
+  private transferChoice: ReceiveChoice | null = null;
   /** A console-settings save is on its way back as a firmware image. */
   private dsSettingsPending = false;
   private layoutEditor: LayoutEditor;
@@ -102,7 +119,15 @@ export class App {
   private slot2RomId: string | null = null;
   private stalledTicks = 0;
   /** Test hooks (see scripts/): scripted keys on a link, and a copy of the save. */
-  private hooks: TestHooks = { keyScript: null, save: () => this.copyOfSave(), linkLog: () => linkLogText() };
+  private hooks: TestHooks = {
+    keyScript: null,
+    save: () => this.copyOfSave(),
+    linkLog: () => linkLogText(),
+    putSave: (id, data) => storage.putSave(id, data),
+    getSave: (id) => storage.getSave(id),
+    listRoms: () => storage.listRoms(),
+    refreshLibrary: () => this.library.refresh(),
+  };
   private keyScript: ScriptedKeys | null = null;
   private saveWaiters: ((data: ArrayBuffer) => void)[] = [];
 
@@ -208,7 +233,8 @@ export class App {
     this.stage.append(this.touch.element);
     this.layoutEditor = new LayoutEditor(this.stage);
     this.player.append(this.controllerSettings.element, this.keyboardSettings.element, this.dsSettings.element, this.linkDialog.element, this.confirmDialog.element);
-    this.root.append(this.library.element, this.player);
+    this.root.append(this.library.element, this.player, this.transferDialog.element);
+    this.wireTransfer();
 
     this.library.onPlay = (entry) => this.play(entry);
     this.wireToolbar();
@@ -251,6 +277,150 @@ export class App {
 
   async start() {
     await this.library.refresh();
+    // A QR code scanned on this device: receive from the device that showed it.
+    const params = new URLSearchParams(location.search);
+    const code = params.get("receive");
+    if (code) {
+      params.delete("receive");
+      history.replaceState(null, "", `${location.pathname}${params.size ? `?${params}` : ""}`);
+      this.openReceive(code.toUpperCase());
+    }
+  }
+
+  private get localLink(): boolean {
+    return new URLSearchParams(location.search).get("link") === "local";
+  }
+
+  private wireTransfer() {
+    const dialog = this.transferDialog;
+    this.library.onHold = (entry) => void this.openSend(entry);
+    this.library.onReceive = () => this.openReceive(null);
+    dialog.onClose = () => {
+      this.transferHost?.cancel();
+      this.transferGuest?.cancel();
+      this.transferHost = null;
+      this.transferGuest = null;
+      this.transferEntry = null;
+      this.transferRom = null;
+      this.transferOffer = null;
+      this.transferChoice = null;
+    };
+    dialog.onSend = (choice) => void this.startSending(choice);
+    dialog.onAccept = () => this.transferHost?.accept();
+    dialog.onReject = () => this.transferHost?.reject();
+    dialog.onConnect = (code) => void this.startReceiving(code);
+    dialog.onReceive = (choice) => {
+      this.transferChoice = choice;
+      this.transferGuest?.request(choice.rom !== "skip", choice.save);
+    };
+  }
+
+  private async openSend(entry: RomEntry) {
+    const rom = await storage.getRomData(entry.id);
+    if (!rom) return;
+    this.transferEntry = entry;
+    this.transferRom = rom;
+    this.transferDialog.openSend(entry, rom.byteLength, await storage.getSaveMeta(entry.id));
+  }
+
+  private async startSending(choice: SendChoice) {
+    const entry = this.transferEntry;
+    const rom = this.transferRom;
+    if (!entry || !rom) return;
+    const save = choice.save ? await storage.getSave(entry.id) : null;
+    const meta = save ? await storage.getSaveMeta(entry.id) : null;
+    const items: Items = { entry, rom: choice.rom ? rom : null, save: save ? { data: save, updatedAt: meta?.updatedAt ?? 0 } : null };
+    this.transferDialog.setStatus("Setting up…");
+    try {
+      const host = await TransferHost.start(this.localLink, this.settings.connection, items);
+      this.transferHost = host;
+      const url = `${location.origin}${location.pathname}?receive=${host.code}${this.localLink ? "&link=local" : ""}`;
+      this.transferDialog.showCode(host.code, url);
+      host.onStatus = (text) => this.transferDialog.setStatus(text);
+      host.onVerify = (words) => this.transferDialog.showWords(words, "host");
+      host.onProgress = (item, done, total) => this.transferDialog.setProgress(item, done, total);
+      host.onError = (message) => this.transferDialog.fail(message);
+      host.onFinished = (sent) => void this.sentDone(entry, sent);
+    } catch (error) {
+      this.transferDialog.fail(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async sentDone(entry: RomEntry, sent: { rom: boolean; save: boolean }) {
+    const now = Date.now();
+    await storage.updateRom(entry.id, { transferredAt: now, ...(sent.save ? { savedAt: now } : {}) });
+    this.transferHost = null;
+    this.transferDialog.finish(sent.rom || sent.save ? "Sent." : "The other device took nothing.");
+    await this.library.refresh();
+  }
+
+  private openReceive(code: string | null) {
+    this.transferDialog.openReceive(code);
+    if (code) void this.startReceiving(code);
+  }
+
+  private async startReceiving(code: string) {
+    this.transferDialog.setStatus("Connecting…");
+    try {
+      const guest = await TransferGuest.connect(code, this.localLink, this.settings.connection);
+      this.transferGuest = guest;
+      guest.onStatus = (text) => this.transferDialog.setStatus(text);
+      guest.onVerify = (words) => this.transferDialog.showWords(words, "guest");
+      guest.onOffer = (offer) => void this.showOffer(offer);
+      guest.onProgress = (item, done, total) => this.transferDialog.setProgress(item, done, total);
+      guest.onError = (message) => this.transferDialog.fail(message);
+      guest.onReceived = (received) => void this.storeReceived(received);
+    } catch (error) {
+      this.transferDialog.fail(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** What the sender offers, against the library here. */
+  private async showOffer(offer: Offer) {
+    const entries = await storage.listRoms();
+    const identical = entries.find((e) => e.id === offer.rom.id) ?? null;
+    const candidates = entries.filter(
+      (e) => e.id !== offer.rom.id && (e.system ?? "gba") === offer.rom.system && e.gameCode === offer.rom.gameCode && e.title === offer.rom.title,
+    );
+    const localSave = identical ? await storage.getSaveMeta(identical.id) : null;
+    this.transferOffer = {
+      offer,
+      identical: identical ? { id: identical.id, name: identical.name } : null,
+      candidates: candidates.map((c) => ({ id: c.id, name: c.name })),
+      localSave: localSave ? { updatedAt: localSave.updatedAt } : null,
+    };
+    this.transferDialog.showOffer(this.transferOffer);
+  }
+
+  /** Everything arrived and checked out: into the library as chosen. */
+  private async storeReceived(received: Received) {
+    const view = this.transferOffer;
+    const choice = this.transferChoice;
+    if (!view || !choice) return;
+    const { offer } = view;
+    let targetId = view.identical?.id ?? null;
+    try {
+      if (received.rom && choice.rom !== "skip") {
+        const extension = { gba: ".gba", gbc: ".gbc", nds: ".nds" }[offer.rom.system];
+        const entry = await storage.addRom(new File([received.rom], `${offer.rom.name}${extension}`));
+        if (entry.id !== offer.rom.id) {
+          await storage.deleteRom(entry.id);
+          throw new Error("The ROM arrived damaged");
+        }
+        if (typeof choice.rom === "object") await storage.replaceRom(choice.rom.update, entry.id);
+        targetId = entry.id;
+      }
+      const gotSave = received.save !== null && choice.save && targetId !== null;
+      if (gotSave) await storage.putSave(targetId!, received.save!);
+      const now = Date.now();
+      if (targetId) await storage.updateRom(targetId, { transferredAt: now, ...(gotSave ? { savedAt: now } : {}) });
+      this.transferGuest = null;
+      const got = [received.rom && choice.rom !== "skip" ? "the ROM" : null, gotSave ? "the save" : null].filter(Boolean);
+      this.transferDialog.finish(got.length ? `Received ${got.join(" and ")}.` : "Nothing was taken.");
+      await this.library.refresh();
+    } catch (error) {
+      this.transferDialog.fail(error instanceof Error ? error.message : String(error));
+    }
   }
 
   /** What goes in a DS game's GBA slot, from its library entry (the Rumble Pak unless chosen otherwise). */

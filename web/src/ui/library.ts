@@ -21,6 +21,10 @@ const SYSTEMS: { id: System; name: string; accept: string; files: string }[] = [
 export class Library {
   readonly element: HTMLDivElement;
   onPlay: (entry: RomEntry) => void = () => {};
+  /** A long press (or a right click) on a game: send it to another device. */
+  onHold: (entry: RomEntry) => void = () => {};
+  /** "Receive from another device" was chosen. */
+  onReceive: () => void = () => {};
 
   constructor() {
     this.element = document.createElement("div");
@@ -47,6 +51,7 @@ export class Library {
       <header class="library-header">
         <h1><img src="${import.meta.env.BASE_URL}icons/icon.svg" alt="" width="36" height="36" /> Pipit</h1>
         <p class="muted">Your games stay on this device. Nothing is uploaded.</p>
+        <p class="library-transfer"><button class="btn" data-action="receive">Receive from another device…</button><span class="muted small">Hold a game to send it to another device.</span></p>
       </header>
       <nav class="tabs" role="tablist" aria-label="Systems">
         ${SYSTEMS.map((s) => `<button class="tab${s.id === "gba" ? " active" : ""}" role="tab" aria-selected="${s.id === "gba"}" data-tab="${s.id}">${s.name}</button>`).join("")}
@@ -61,6 +66,7 @@ export class Library {
         </div>
       </aside>`;
 
+    this.element.querySelector('[data-action="receive"]')!.addEventListener("click", () => this.onReceive());
     for (const input of this.element.querySelectorAll<HTMLInputElement>("input[type=file]")) {
       input.addEventListener("change", async () => {
         for (const file of input.files ?? []) await storage.addRom(file);
@@ -161,7 +167,43 @@ export class Library {
     item.querySelector(".rom-name")!.textContent = entry.name;
     item.querySelector(".rom-meta")!.textContent =
       `${entry.title || "Untitled"} · ${entry.gameCode || "????"} · ${(entry.size / 1048576).toFixed(1)} MB`;
-    item.querySelector(".rom-main")!.addEventListener("click", () => this.onPlay(entry));
+    const main = item.querySelector<HTMLButtonElement>(".rom-main")!;
+    main.title = "Play; hold to send to another device";
+    // A long press (or a right click) sends the game; the click that follows a hold is not a play.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let fired = false;
+    const clear = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+    };
+    const hold = () => {
+      clear();
+      if (fired) return;
+      fired = true;
+      this.onHold(entry);
+    };
+    main.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      fired = false;
+      clear();
+      timer = setTimeout(hold, 550);
+    });
+    for (const type of ["pointerup", "pointercancel", "pointerleave"]) main.addEventListener(type, clear);
+    main.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      hold();
+    });
+    main.addEventListener("click", () => {
+      if (fired) return;
+      this.onPlay(entry);
+    });
+    if (entry.transferredAt && entry.savedAt && entry.savedAt > entry.transferredAt) {
+      const mark = document.createElement("span");
+      mark.className = "rom-sync";
+      mark.title = "Played since it was last sent or received: the save on your other device is behind";
+      mark.innerHTML = icon("sync", 16);
+      item.querySelector(".rom-name")!.append(mark);
+    }
     item.querySelector(".rom-delete")!.addEventListener("click", async () => {
       if (confirm(`Remove "${entry.name}" and its save data from this device?`)) {
         await storage.deleteRom(entry.id);

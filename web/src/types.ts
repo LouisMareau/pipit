@@ -161,6 +161,10 @@ export interface RomEntry {
   slot2?: string;
   /** A DS game's save chip, named by the player ("eeprom4k" … "flash64m"); absent or "auto" lets Pipit tell. */
   saveType?: string;
+  /** When the save last changed (the game wrote it, or a save was imported or received). */
+  savedAt?: number;
+  /** When this game or its save last went to or came from another device; the library marks a save changed since. */
+  transferredAt?: number;
 }
 
 /** Keys in the order the remapping screens list them (X and Y are the DS's). */

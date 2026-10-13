@@ -542,6 +542,51 @@ if (gbRomArg) {
   for (let i = 0; i < 24 && !(await inLibrary()); i++) await sleep(250);
 }
 
+// Sending a game to another device: a hold on the GBA entry opens the send
+// dialog; a second window receives with the code, and both show the same
+// three words. The receiving window first removes the game (the library is
+// shared between windows of one browser), so the ROM and its save come back
+// through the transfer; afterwards a save written on the sender marks the
+// entry as changed since.
+await evaluate("document.querySelector('.tab[data-tab=gba]').click(); true");
+const xferEntry = await evaluate("window.pipit.listRoms().then((rows) => rows.find((r) => (r.system ?? 'gba') === 'gba'))");
+const xferId = JSON.stringify(xferEntry.id);
+await evaluate(`window.pipit.putSave(${xferId}, new Uint8Array(4096).fill(0x5A).buffer)`);
+await sleep(300);
+await evaluate(`(async () => { const main = document.querySelector('.rom-list[data-system=gba] .rom-main'); const ev = (type) => main.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, pointerType: 'touch', isPrimary: true })); ev('pointerdown'); await new Promise((r) => setTimeout(r, 700)); ev('pointerup'); main.click(); return true; })()`);
+await sleep(400);
+const xfer = { dialog: await evaluate("(() => { const d = document.querySelector('.transfer-dialog'); return { open: !d.closest('.modal-backdrop').classList.contains('hidden'), game: d.querySelector('.transfer-game').textContent, saveChecked: d.querySelector('[data-item=save]').checked, saveInfo: d.querySelector('.transfer-save-info').textContent, playing: !document.querySelector('.player').classList.contains('hidden') }; })()") };
+await evaluate("document.querySelector('.transfer-dialog [data-action=start]').click(); true");
+await sleep(1500);
+xfer.code = await evaluate("document.querySelector('.transfer-dialog .link-code').textContent");
+xfer.qr = await evaluate("document.querySelector('.transfer-dialog .transfer-qr svg') !== null");
+const receiver = await newWindow(url);
+await sleep(1500);
+await receiver.evaluate("window.confirm = () => true; document.querySelector('.rom-list[data-system=gba] .rom-delete').click(); true");
+await sleep(800);
+xfer.removed = await receiver.evaluate(`window.pipit.listRoms().then((rows) => !rows.some((r) => r.id === ${xferId}))`);
+await receiver.evaluate("document.querySelector('[data-action=receive]').click(); true");
+await receiver.evaluate(`(() => { document.querySelector('.transfer-input').value = ${JSON.stringify(xfer.code)}; document.querySelector('[data-action=connect-form]').requestSubmit(); return true; })()`);
+await sleep(2500);
+xfer.words = { host: await evaluate("document.querySelector('.transfer-dialog .transfer-words').textContent"), guest: await receiver.evaluate("document.querySelector('.transfer-dialog .transfer-words').textContent") };
+await evaluate("document.querySelector('.transfer-dialog [data-action=accept]').click(); true");
+await sleep(1500);
+xfer.offer = await receiver.evaluate("(() => { const d = document.querySelector('.transfer-dialog'); return { choices: Array.from(d.querySelectorAll('input[name=transfer-rom]')).map((i) => i.value + (i.checked ? '*' : '')), save: d.querySelector('[data-offer=save]')?.checked, saveLabel: d.querySelector('[data-offer=save]')?.nextElementSibling.textContent }; })()");
+await receiver.evaluate("document.querySelector('.transfer-dialog [data-action=receive]').click(); true");
+const guestStatus = () => receiver.evaluate("document.querySelector('.transfer-dialog .transfer-status').textContent");
+for (let i = 0; i < 60 && !/Received|Nothing|damaged|went away|cancel/.test(await guestStatus()); i++) await sleep(250);
+xfer.guestStatus = await guestStatus();
+await sleep(500);
+xfer.hostStatus = await evaluate("document.querySelector('.transfer-dialog .transfer-status').textContent");
+xfer.back = await receiver.evaluate(`window.pipit.listRoms().then(async (rows) => { const r = rows.find((e) => e.id === ${xferId}); const save = await window.pipit.getSave(${xferId}); return { listed: !!r, name: r?.name, saveLength: save?.byteLength, saveByte: save ? new Uint8Array(save)[100] : null, synced: !!r && r.transferredAt >= r.savedAt }; })`);
+await evaluate("document.querySelector('.transfer-dialog .transfer-done [data-action=close]').click(); true");
+xfer.markBefore = await evaluate("document.querySelectorAll('.rom-list[data-system=gba] .rom-sync').length");
+await evaluate(`window.pipit.putSave(${xferId}, new Uint8Array(4096).fill(0x5B).buffer).then(() => window.pipit.refreshLibrary())`);
+await sleep(300);
+xfer.markAfter = await evaluate("document.querySelectorAll('.rom-list[data-system=gba] .rom-sync').length");
+await receiver.closeWindow();
+console.log(`transfer: ${JSON.stringify(xfer)}`);
+
 // A DS game, when one is given (WordleDS is the one the DS checks expect): it
 // goes under the DS tab, shows both screens stacked at 256×384, the A/B disc
 // gains X and Y, and a tap on the bottom screen reaches the game: WordleDS
@@ -732,6 +777,11 @@ if (
   !phone.landscape.selectLeftOfStart ||
   !phone.landscape.pillsSameRow ||
   !phone.landscape.pillsHugScreen ||
+  !(xfer.dialog.open && !xfer.dialog.playing && xfer.dialog.saveChecked && /4 KB/.test(xfer.dialog.saveInfo) && xfer.code.length === 8 && xfer.qr && xfer.removed) ||
+  !(xfer.words.host.split(" ").length === 3 && xfer.words.host === xfer.words.guest) ||
+  !(xfer.offer.choices.includes("add*") && xfer.offer.save === true && /none here yet/.test(xfer.offer.saveLabel)) ||
+  !(/Received the ROM and the save/.test(xfer.guestStatus) && /Sent/.test(xfer.hostStatus)) ||
+  !(xfer.back.listed && xfer.back.saveLength === 4096 && xfer.back.saveByte === 0x5a && xfer.back.synced && xfer.markBefore === 0 && xfer.markAfter === 1) ||
   (nds && !(nds.listed === 1 && nds.system === "nds" && nds.width === 256 && nds.height === 384 && nds.xyShown && nds.tapChangedScreen)) ||
   (nds && !(nds.slot2.shown && nds.slot2.options.length === 3 && /hello inserted in the GBA slot/.test(nds.slot2.toast) && nds.slot2.playing.playing)) ||
   (nds &&

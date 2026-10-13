@@ -1618,3 +1618,63 @@ body[data-chrome="drawer"] .toast {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* Sending games between devices: the hold on an entry, the mark on a save
+   changed since, and the transfer dialog. */
+.rom-main {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.rom-sync {
+  display: inline-flex;
+  margin-left: 8px;
+  color: #e5b43c;
+  vertical-align: -3px;
+}
+
+.library-transfer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.transfer-qr {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0;
+}
+
+.transfer-qr svg {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+}
+
+.transfer-words {
+  margin: 8px 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.transfer-progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.transfer-offer h3 {
+  margin: 12px 0 4px;
+  font-size: 15px;
+}
+
+.transfer-offer .row {
+  padding: 4px 2px;
+}
+
+.transfer-offer .row > span,
+.transfer-dialog .row > span {
+  flex: 1;
+}

@@ -34,3 +34,8 @@ can stay plain `turn:`; the data channel itself is always encrypted.
 
 Everyone in a session must use the same introduction server: that is where the
 code is looked up.
+
+Sending a game to another device uses the same introduction server and, when
+needed, the same relay: the two devices must use the same server to find each
+other, and the bytes go between them directly (or through your relay, which
+sees only the encrypted stream).

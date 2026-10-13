@@ -95,8 +95,36 @@ export async function getSave(id: string): Promise<ArrayBuffer | null> {
   return row?.data ?? null;
 }
 
+/** Keeps a game's save, and notes on its entry when it last changed (see `RomEntry.savedAt`). */
 export async function putSave(id: string, data: ArrayBuffer) {
-  await tx("saves", "readwrite", (s) => s.put({ id, data, updatedAt: Date.now() }));
+  const now = Date.now();
+  await tx("saves", "readwrite", (s) => s.put({ id, data, updatedAt: now }));
+  await updateRom(id, { savedAt: now });
+}
+
+/** A save's size and age, without its data. */
+export async function getSaveMeta(id: string): Promise<{ size: number; updatedAt: number } | null> {
+  const row = await tx<{ id: string; data: ArrayBuffer; updatedAt?: number } | undefined>("saves", "readonly", (s) => s.get(id));
+  return row ? { size: row.data.byteLength, updatedAt: row.updatedAt ?? 0 } : null;
+}
+
+/**
+ * A newer build of a game took the old one's place: its save, states and
+ * settings move over to the new entry, and the old entry goes.
+ */
+export async function replaceRom(oldId: string, newId: string) {
+  const old = await tx<RomEntry | undefined>("roms", "readonly", (s) => s.get(oldId));
+  const entry = await tx<RomEntry | undefined>("roms", "readonly", (s) => s.get(newId));
+  if (!old || !entry || oldId === newId) return;
+  const save = await tx<{ id: string; data: ArrayBuffer; updatedAt?: number } | undefined>("saves", "readonly", (s) => s.get(oldId));
+  if (save) await tx("saves", "readwrite", (s) => s.put({ ...save, id: newId }));
+  const states = await tx<StateEntry[]>("states", "readonly", (s) => s.getAll(IDBKeyRange.bound(`${oldId}:`, `${oldId}:￿`)));
+  for (const state of states) {
+    await tx("states", "readwrite", (s) => s.put({ ...state, key: `${newId}:${state.slot}`, romId: newId }));
+  }
+  const { id: _id, title: _title, gameCode: _code, size: _size, ...kept } = old;
+  await tx("roms", "readwrite", (s) => s.put({ ...entry, ...kept, id: newId }));
+  await deleteRom(oldId);
 }
 
 export interface StateEntry {

@@ -139,6 +139,16 @@ caches are not modelled: accesses outside the TCMs cost one bus cycle per
   resampling rate by up to ±1 % to keep its buffer near 125 ms. Frames are posted
   as transferable buffers and recycled. ROMs and saves live in IndexedDB on the
   device and are never uploaded anywhere.
+- Sending a game to another device (`platform/transfer.ts`) rides on the same
+  peer-to-peer connection as playing together, under its own codes. The two
+  devices agree a key of their own with an ECDH exchange bound to the code
+  and derive three words from it that both show, so an introduction server
+  sitting in the middle would be seen; every message after the hello is
+  AES-GCM encrypted with a counter nonce, chunks are bound to their index and
+  acknowledged in a window, and the whole item is checked against its SHA-256
+  before the receiver's library takes it. The dialog (`ui/transfer-dialog.ts`)
+  shows the code and its QR code, the words, and what the receiving library
+  already holds.
 - Playing together (`platform/netplay.ts`) does not send cable traffic over the
   network: both players' consoles run on both machines, joined by the core's
   in-process link, and only button states cross the wire. The host chooses

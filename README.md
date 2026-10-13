@@ -11,6 +11,9 @@ the players of a game, and a GBA game from your library in the GBA slot.
 - **Portable.** The core is plain Rust with no I/O. It compiles natively and to
   WebAssembly, so the web app, the desktop app and the test runner share it.
 - **Yours.** No bundled games, no bundled BIOS. ROMs you open stay on your device.
+  To play on another device, hold a game in the library and send it, with its save,
+  straight to the other one: a code or a QR code pairs them, both show the same three
+  words to check nobody is in between, and the bytes never touch a server.
   MIT licensed.
 
 > Pipit is not affiliated with or endorsed by Nintendo.
