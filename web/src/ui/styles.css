@@ -501,13 +501,12 @@ kbd {
   display: none;
 }
 
-/* Sits over the top-right corner of the screen column (the letterbox bar on
-   phones), so it takes no room from the controls and never covers R. */
+/* Sits in the bottom-right corner of the phone's screen, the same place
+   whatever the layout, where a thumb reaches it without covering the game. */
 .player.drawer-mode .menu-fab {
-  grid-area: screen;
-  justify-self: end;
-  align-self: start;
-  margin: 8px;
+  position: fixed;
+  right: calc(10px + env(safe-area-inset-right));
+  bottom: calc(10px + env(safe-area-inset-bottom));
   z-index: 3;
   display: grid;
   place-items: center;
@@ -1016,8 +1015,7 @@ body[data-chrome="drawer"] .toast {
 .player.touch-on .stage.custom .screen-box,
 .player.touch-on .stage.custom .pad,
 .player.touch-on .stage.custom .tbtn-shoulder,
-.player.touch-on .stage.custom .tbtn-pill,
-.player.touch-on .stage.custom .menu-fab {
+.player.touch-on .stage.custom .tbtn-pill {
   position: absolute;
   margin: 0;
 }
