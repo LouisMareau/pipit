@@ -549,11 +549,16 @@ if (gbRomArg) {
 // through the transfer; afterwards a save written on the sender marks the
 // entry as changed since.
 await evaluate("document.querySelector('.tab[data-tab=gba]').click(); true");
-const xferEntry = await evaluate("window.pipit.listRoms().then((rows) => rows.find((r) => (r.system ?? 'gba') === 'gba'))");
+// A 2.5 MB ROM made for the test, bigger than the sender's window of chunks in
+// flight, so the acknowledgements have to flow for it to arrive whole.
+const xferEntry = await evaluate(`(async () => { const data = new Uint8Array(2.5 * 1024 * 1024); for (let at = 0; at < data.length; at += 65536) crypto.getRandomValues(data.subarray(at, Math.min(at + 65536, data.length))); data.set([66, 73, 71, 0, 0, 0, 0, 0, 0, 0, 0, 0], 0xa0); data.set([66, 73, 71, 69], 0xac); return window.pipit.addRom('big.gba', data.buffer); })()`);
+await evaluate("window.pipit.refreshLibrary()");
+await sleep(300);
+const bigItem = "Array.from(document.querySelectorAll('.rom-list[data-system=gba] .rom')).find((li) => li.querySelector('.rom-name').textContent.startsWith('big'))";
 const xferId = JSON.stringify(xferEntry.id);
 await evaluate(`window.pipit.putSave(${xferId}, new Uint8Array(4096).fill(0x5A).buffer)`);
 await sleep(300);
-await evaluate(`(async () => { const main = document.querySelector('.rom-list[data-system=gba] .rom-main'); const ev = (type) => main.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, pointerType: 'touch', isPrimary: true })); ev('pointerdown'); await new Promise((r) => setTimeout(r, 700)); ev('pointerup'); main.click(); return true; })()`);
+await evaluate(`(async () => { const main = ${bigItem}.querySelector('.rom-main'); const ev = (type) => main.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, pointerType: 'touch', isPrimary: true })); ev('pointerdown'); await new Promise((r) => setTimeout(r, 700)); ev('pointerup'); main.click(); return true; })()`);
 await sleep(400);
 const xfer = { dialog: await evaluate("(() => { const d = document.querySelector('.transfer-dialog'); return { open: !d.closest('.modal-backdrop').classList.contains('hidden'), game: d.querySelector('.transfer-game').textContent, saveChecked: d.querySelector('[data-item=save]').checked, saveInfo: d.querySelector('.transfer-save-info').textContent, playing: !document.querySelector('.player').classList.contains('hidden') }; })()") };
 await evaluate("document.querySelector('.transfer-dialog [data-action=start]').click(); true");
@@ -562,7 +567,7 @@ xfer.code = await evaluate("document.querySelector('.transfer-dialog .link-code'
 xfer.qr = await evaluate("document.querySelector('.transfer-dialog .transfer-qr svg') !== null");
 const receiver = await newWindow(url);
 await sleep(1500);
-await receiver.evaluate("window.confirm = () => true; document.querySelector('.rom-list[data-system=gba] .rom-delete').click(); true");
+await receiver.evaluate(`window.confirm = () => true; ${bigItem}.querySelector('.rom-delete').click(); true`);
 await sleep(800);
 xfer.removed = await receiver.evaluate(`window.pipit.listRoms().then((rows) => !rows.some((r) => r.id === ${xferId}))`);
 await receiver.evaluate("document.querySelector('[data-action=receive]').click(); true");
@@ -592,6 +597,7 @@ await evaluate(`window.pipit.putSave(${xferId}, new Uint8Array(4096).fill(0x5B).
 await sleep(300);
 xfer.markAfter = await evaluate("document.querySelectorAll('.rom-list[data-system=gba] .rom-sync').length");
 await receiver.closeWindow();
+await evaluate(`window.pipit.deleteRom(${xferId}).then(() => window.pipit.refreshLibrary())`);
 console.log(`transfer: ${JSON.stringify(xfer)}`);
 
 // A DS game, when one is given (WordleDS is the one the DS checks expect): it
@@ -784,7 +790,8 @@ if (
   !phone.landscape.selectLeftOfStart ||
   !phone.landscape.pillsSameRow ||
   !phone.landscape.pillsHugScreen ||
-  !(xfer.dialog.open && !xfer.dialog.playing && xfer.dialog.saveChecked && /4 KB/.test(xfer.dialog.saveInfo) && xfer.code.length === 8 && xfer.qr && xfer.removed) ||
+  !(xfer.dialog.open && !xfer.dialog.playing && xfer.dialog.game === "big" && xfer.dialog.saveChecked && /4 KB/.test(xfer.dialog.saveInfo) && xfer.code.length === 8 && xfer.qr && xfer.removed) ||
+  xfer.back.name !== "big" ||
   xfer.typed !== "zx" ||
   !(xfer.words.host.split(" ").length === 3 && xfer.words.host === xfer.words.guest) ||
   !(xfer.offer.choices.includes("add*") && xfer.offer.save === true && /none here yet/.test(xfer.offer.saveLabel)) ||

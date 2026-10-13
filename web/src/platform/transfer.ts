@@ -292,18 +292,26 @@ export class TransferHost {
       const secrets = await agree(keys.priv, message.pub, this.code);
       this.cipher = new Cipher(secrets.key, 0);
       pipe.onMessage = (m) => this.handle(m);
-      this.onVerify(secrets.words);
-      const ok = await new Promise<boolean>((resolve) => (this.decided = resolve));
-      this.decided = null;
-      if (this.closed) return;
-      if (!ok) {
-        pipe.send({ type: "cancel", reason: "refused" });
-        this.fail("You turned the other device away");
-        return;
-      }
-      await this.control({ kind: "offer", offer: this.offer() });
-      this.onStatus("Waiting for the other device to choose…");
+      // The decision and the sending run beside the pipe, not inside its
+      // queue: a cancel can still come through meanwhile, and the
+      // acknowledgements the sending waits for arrive on that same queue.
+      void this.decide(secrets.words);
     };
+  }
+
+  /** The user compares the words; on a match the offer goes out. */
+  private async decide(words: string) {
+    this.onVerify(words);
+    const ok = await new Promise<boolean>((resolve) => (this.decided = resolve));
+    this.decided = null;
+    if (this.closed) return;
+    if (!ok) {
+      this.pipe?.send({ type: "cancel", reason: "refused" });
+      this.fail("You turned the other device away");
+      return;
+    }
+    await this.control({ kind: "offer", offer: this.offer() });
+    this.onStatus("Waiting for the other device to choose…");
   }
 
   private offer(): Offer {
@@ -336,8 +344,9 @@ export class TransferHost {
         break;
       case "enc": {
         const control = JSON.parse(decoder.decode(await this.cipher!.open(message.data, "m"))) as Control;
-        if (control.kind === "request") await this.sendItems(control.rom, control.save);
-        else if (control.kind === "finished") {
+        if (control.kind === "request") {
+          this.sendItems(control.rom, control.save).catch((error) => this.fail(error instanceof Error ? error.message : String(error)));
+        } else if (control.kind === "finished") {
           this.shutdown();
           this.onFinished(this.sent);
         }
@@ -349,6 +358,7 @@ export class TransferHost {
   }
 
   private async sendItems(rom: boolean, save: boolean) {
+    this.onStatus("Sending…");
     if (rom && this.items.rom) {
       await this.stream("rom", this.items.rom);
       this.sent.rom = true;

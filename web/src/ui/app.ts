@@ -41,6 +41,9 @@ interface TestHooks {
   getSave: (id: string) => Promise<ArrayBuffer | null>;
   listRoms: () => Promise<RomEntry[]>;
   refreshLibrary: () => Promise<void>;
+  /** A ROM made for a test, and its removal. */
+  addRom: (name: string, data: ArrayBuffer) => Promise<RomEntry>;
+  deleteRom: (id: string) => Promise<void>;
 }
 
 /** `300=START,330=,600=A+RIGHT`: the keys held from each frame on (names as in `Key`). */
@@ -127,6 +130,8 @@ export class App {
     getSave: (id) => storage.getSave(id),
     listRoms: () => storage.listRoms(),
     refreshLibrary: () => this.library.refresh(),
+    addRom: (name, data) => storage.addRom(new File([data], name)),
+    deleteRom: (id) => storage.deleteRom(id),
   };
   private keyScript: ScriptedKeys | null = null;
   private saveWaiters: ((data: ArrayBuffer) => void)[] = [];

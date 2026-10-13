@@ -250,6 +250,7 @@ export class TransferDialog {
 
   setProgress(item: Item, done: number, total: number) {
     this.show("progress");
+    this.setStatus("Transferring…");
     this.element.querySelector(".transfer-progress-label")!.textContent = `${item === "rom" ? "ROM" : "Save"}: ${done} of ${total}`;
     this.element.querySelector<HTMLProgressElement>(".transfer-progress")!.value = total ? (done / total) * 100 : 0;
   }
