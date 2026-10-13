@@ -233,6 +233,21 @@ impl Nds {
         bus.run_events();
     }
 
+    /// One ARM7 instruction, with the ARM9 kept up to the same time (tracing).
+    pub fn step7(&mut self) {
+        let bus = &mut self.bus;
+        bus.target = bus.time[ARM7] + 1;
+        self.arm7.step(&mut View7(bus));
+        let t = bus.time[ARM7];
+        bus.target = t;
+        let mut view = View9(bus);
+        while view.0.time[ARM9] < t {
+            self.arm9.step(&mut view);
+        }
+        bus.scheduler.set_now(bus.time[ARM9].min(bus.time[ARM7]));
+        bus.run_events();
+    }
+
     fn compose(&mut self) {
         let n = SCREEN_WIDTH * SCREEN_HEIGHT;
         self.frame[..n].copy_from_slice(&self.bus.video.screens[0][..]);

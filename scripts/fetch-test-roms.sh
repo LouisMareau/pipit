@@ -26,4 +26,6 @@ fi
 # Nintendo DS
 mkdir -p nds
 fetch https://raw.githubusercontent.com/RockPolish/rockwrestler/master/rockwrestler.nds nds/rockwrestler.nds # CPU, IPC, memory control, math (WIP)
+fetch https://github.com/Epicpkmn11/WordleDS/releases/download/v3.2.3/WordleDS.nds nds/WordleDS.nds      # 2D homebrew: backgrounds, sprites, touch
+fetch https://github.com/DS-Homebrew/GodMode9i/releases/download/v3.10.0/GodMode9i.nds nds/GodMode9i.nds # 2D homebrew: console text, file browser (GPLv3)
 echo "Test ROMs ready in $(pwd)"

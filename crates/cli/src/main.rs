@@ -51,6 +51,12 @@ enum Command {
         /// Skip this many instructions before tracing starts.
         #[arg(long, default_value_t = 0)]
         trace_skip: u64,
+        /// Run this many frames before tracing starts.
+        #[arg(long, default_value_t = 0)]
+        trace_after: u32,
+        /// Trace the DS's ARM7 instead of its ARM9.
+        #[arg(long)]
+        trace7: bool,
         /// Key script: `frame=KEYS` entries separated by commas, keys joined with `+`,
         /// e.g. `--keys 300=START,330=,600=A+RIGHT`. A key stays held until changed.
         #[arg(long)]
@@ -58,6 +64,9 @@ enum Command {
         /// Print memory at the end: `ADDR[:LEN]` in hex, e.g. `--peek 03005DBC:4`.
         #[arg(long)]
         peek: Vec<String>,
+        /// Like `--peek`, through the DS's ARM7 memory map.
+        #[arg(long)]
+        peek7: Vec<String>,
     },
     /// Measure emulation speed over a number of frames.
     Bench {
@@ -119,8 +128,11 @@ fn main() -> Result<()> {
             regs,
             trace,
             trace_skip,
+            trace_after,
+            trace7,
             keys,
             peek,
+            peek7,
         } => {
             let rom_data = fs::read(&rom).with_context(|| format!("reading {}", rom.display()))?;
             let bios_data = bios.map(fs::read).transpose().context("reading BIOS")?;
@@ -131,33 +143,48 @@ fn main() -> Result<()> {
                     machine.load_save_data(&data);
                 }
             }
+            let script = keys.as_deref().map(parse_key_script).transpose()?.unwrap_or_default();
+            let mut frame = 0u32;
+            let run_to = |machine: &mut Machine, frame: &mut u32, end: u32| {
+                while *frame < end {
+                    if let Some((_, keys)) = script.iter().find(|(f, _)| *f == *frame) {
+                        machine.set_keys(*keys);
+                    }
+                    machine.run_frame();
+                    *frame += 1;
+                }
+            };
             if let Some(count) = trace {
+                run_to(&mut machine, &mut frame, trace_after.min(frames));
+                let step =
+                    |machine: &mut Machine| if trace7 { machine.step7() } else { machine.step() };
                 for _ in 0..trace_skip {
-                    machine.step();
+                    step(&mut machine);
                 }
                 for _ in 0..count {
-                    eprintln!("{}", machine.trace_line());
-                    machine.step();
+                    let line = if trace7 { machine.trace_line7() } else { machine.trace_line() };
+                    eprintln!("{line}");
+                    step(&mut machine);
                 }
             }
-            let script = keys.as_deref().map(parse_key_script).transpose()?.unwrap_or_default();
-            for frame in 0..frames {
-                if let Some((_, keys)) = script.iter().find(|(f, _)| *f == frame) {
-                    machine.set_keys(*keys);
-                }
-                machine.run_frame();
-            }
+            run_to(&mut machine, &mut frame, frames);
             if regs {
                 println!("{}", machine.registers());
             }
-            for spec in &peek {
+            for (arm7, spec) in
+                peek.iter().map(|s| (false, s)).chain(peek7.iter().map(|s| (true, s)))
+            {
                 let (addr, len) = spec.split_once(':').unwrap_or((spec, "4"));
                 let addr = u32::from_str_radix(addr.trim_start_matches("0x"), 16)
                     .context("bad --peek address")?;
                 let len: u32 = len.parse().context("bad --peek length")?;
-                let bytes: Vec<String> =
-                    (0..len).map(|i| format!("{:02X}", machine.peek(addr + i))).collect();
-                println!("{addr:08X}: {}", bytes.join(" "));
+                let bytes: Vec<String> = (0..len)
+                    .map(|i| {
+                        let b = if arm7 { machine.peek7(addr + i) } else { machine.peek(addr + i) };
+                        format!("{b:02X}")
+                    })
+                    .collect();
+                println!("{}{addr:08X}: {}", if arm7 { "ARM7 " } else { "" }, bytes.join(" "));
             }
             if let Some(path) = screenshot {
                 let (width, height) = machine.size();

@@ -73,6 +73,14 @@ impl Machine {
         }
     }
 
+    /// One instruction of the DS's ARM7 (the only machine with a second CPU).
+    pub fn step7(&mut self) {
+        match self {
+            Machine::Nds(n) => n.step7(),
+            _ => self.step(),
+        }
+    }
+
     pub fn set_keys(&mut self, keys: Keys) {
         match self {
             Machine::Gba(g) => g.set_keys(keys),
@@ -130,6 +138,19 @@ impl Machine {
         }
     }
 
+    /// A byte as the DS's ARM7 sees it (other machines have one view only).
+    pub fn peek7(&mut self, addr: u32) -> u8 {
+        match self {
+            Machine::Nds(n) => {
+                let time = n.bus.time;
+                let value = n.bus.read7_8(addr, true);
+                n.bus.time = time;
+                value
+            }
+            _ => self.peek(addr),
+        }
+    }
+
     pub fn instructions(&self) -> u64 {
         match self {
             Machine::Gba(g) => g.cpu.instructions,
@@ -181,6 +202,23 @@ impl Machine {
                 }
                 out + &format!("cycles={}", n.bus.scheduler.now())
             }
+        }
+    }
+
+    /// `trace_line` for the DS's ARM7.
+    pub fn trace_line7(&mut self) -> String {
+        match self {
+            Machine::Nds(n) => {
+                let r = &n.arm7.regs;
+                format!(
+                    "ARM7 {:08X} {:08X} [{}] r0={:08X} r1={:08X} r2={:08X} r3={:08X} r12={:08X} sp={:08X} lr={:08X} cpsr={:08X}",
+                    n.arm7.pc(),
+                    n.arm7.next_opcode(),
+                    if n.arm7.is_thumb() { "T" } else { "A" },
+                    r[0], r[1], r[2], r[3], r[12], r[13], r[14], n.arm7.cpsr
+                )
+            }
+            _ => self.trace_line(),
         }
     }
 

@@ -15,7 +15,9 @@ pub struct Cp15 {
     pub itcm: u32,
     /// c6,c0..7,0: the protection unit's regions.
     pub regions: [u32; 8],
-    /// c2, c3, c5 and c9,c0: cacheability, write buffer, permissions, lockdown.
+    /// c2, c3, c5, c9,c0 and c13: cacheability, write buffer, permissions,
+    /// lockdown, and the process id registers (free scratch space that some
+    /// toolchains use: BlocksDS keeps a value in c13,c0,1 across handlers).
     pub misc: [u32; 16],
     dtcm_base: u32,
     dtcm_size: u32,
@@ -97,6 +99,7 @@ impl Cp15 {
             (9, 0, n) => self.misc[8 + (n as usize & 1)],
             (9, 1, 0) => self.dtcm,
             (9, 1, 1) => self.itcm,
+            (13, 0, n) => self.misc[12 + (n as usize & 1)],
             _ => 0,
         }
     }
@@ -119,6 +122,7 @@ impl Cp15 {
                 self.itcm = value & 0x3E;
                 self.update();
             }
+            (13, 0, n) => self.misc[12 + (n as usize & 1)] = value,
             _ => {}
         }
         false

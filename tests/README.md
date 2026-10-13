@@ -11,6 +11,10 @@ Game ROMs are never part of the repository. To check a real game, run it with
 
 The DS core is checked with RockPolish's rockwrestler (`roms/nds/`): `node
 scripts/rockwrestler.mjs` drives its menu headless and reports every sub-test.
+Two homebrew titles serve as eyeball tests of the 2D engines: `pipit run
+tests/roms/nds/GodMode9i.nds --frames 300 --screenshot build/nds/gm9i.png` shows
+its console on both screens, and the same with `WordleDS.nds` its how-to-play
+screens (a BlocksDS build, so it also exercises the cothread scheduler).
 
 Run everything with:
 
