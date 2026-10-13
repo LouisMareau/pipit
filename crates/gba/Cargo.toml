@@ -9,6 +9,7 @@ authors.workspace = true
 
 [dependencies]
 pipit-common = { workspace = true }
+pipit-arm = { workspace = true }
 serde = { workspace = true }
 bincode = { workspace = true }
 

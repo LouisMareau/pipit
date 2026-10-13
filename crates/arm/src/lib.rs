@@ -1,4 +1,7 @@
-//! ARM7TDMI core: registers, mode banking, pipeline and exceptions.
+//! The ARM core shared by the Game Boy Advance (ARM7TDMI) and the DS (its ARM7
+//! and its ARM946E-S): registers, mode banking, pipeline and exceptions. The
+//! memory it runs on, the interrupt lines and the platform's BIOS replacement
+//! come through the [`Bus`] trait, so each core keeps its own timing.
 //!
 //! The two instruction sets are in `arm.rs` and `thumb.rs`. Both see the same
 //! model: `regs[15]` is the address of the executing instruction plus 8 (ARM) or
@@ -8,8 +11,43 @@
 mod arm;
 mod thumb;
 
-use crate::memory::Bus;
 use serde::{Deserialize, Serialize};
+
+/// What a core must provide for the CPU to run on it: memory with its timing,
+/// the interrupt lines, and the hooks its scheduler and BIOS replacement need.
+pub trait Bus {
+    fn read8(&mut self, addr: u32, seq: bool) -> u8;
+    fn read16(&mut self, addr: u32, seq: bool) -> u16;
+    fn read32(&mut self, addr: u32, seq: bool) -> u32;
+    fn write8(&mut self, addr: u32, value: u8, seq: bool);
+    fn write16(&mut self, addr: u32, value: u16, seq: bool);
+    fn write32(&mut self, addr: u32, value: u32, seq: bool);
+    fn fetch16(&mut self, addr: u32, seq: bool) -> u16;
+    fn fetch32(&mut self, addr: u32, seq: bool) -> u32;
+    /// Internal cycles that touch no memory.
+    fn idle(&mut self, cycles: u32);
+    /// Called before each instruction with the instruction's address.
+    fn set_pc(&mut self, pc: u32);
+    /// True when the CPU must not run this step: it is halted, and the bus has
+    /// skipped ahead to its next event instead (waking the CPU if that event did).
+    fn sleeping(&mut self) -> bool;
+    /// An enabled interrupt is pending and the master switch allows it.
+    fn irq_pending(&self) -> bool;
+    /// After each instruction: run whatever events have come due.
+    fn after_instruction(&mut self);
+    /// A software interrupt: true when handled here (a BIOS replacement), false
+    /// to take the exception.
+    fn swi(&mut self, cpu: &mut Cpu, number: u8) -> bool;
+}
+
+/// Which generation of the instruction set the core implements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Arch {
+    /// ARMv4T: the ARM7TDMI of the Game Boy Advance and the DS's ARM7.
+    V4T,
+    /// ARMv5TE: the DS's ARM946E-S.
+    V5TE,
+}
 
 pub const FLAG_N: u32 = 1 << 31;
 pub const FLAG_Z: u32 = 1 << 30;
@@ -69,20 +107,22 @@ pub struct Cpu {
     next_seq: bool,
     /// Set by any branch so `step` does not also advance the PC.
     flushed: bool,
-    /// An HLE IntrWait is in progress: the SWI re-executes after each interrupt.
-    pub(crate) intr_wait_continuing: bool,
+    /// Which instruction set generation the core implements.
+    pub arch: Arch,
+    /// Where the exception vectors are: 0, or FFFF0000h on an ARM9 with high vectors.
+    pub vector_base: u32,
     /// Instructions executed since reset (statistics; not timing).
     pub instructions: u64,
 }
 
 impl Default for Cpu {
     fn default() -> Self {
-        Self::new()
+        Self::new(Arch::V4T)
     }
 }
 
 impl Cpu {
-    pub fn new() -> Self {
+    pub fn new(arch: Arch) -> Self {
         Self {
             regs: [0; 16],
             cpsr: mode::SVC | FLAG_I | FLAG_F,
@@ -92,30 +132,32 @@ impl Cpu {
             pipeline: [0; 2],
             next_seq: false,
             flushed: false,
-            intr_wait_continuing: false,
+            arch,
+            vector_base: 0,
             instructions: 0,
         }
     }
 
-    /// Puts the CPU in the state the BIOS leaves it in before jumping to the
-    /// cartridge, or at the real reset vector if a BIOS image is loaded.
-    pub fn reset(&mut self, bus: &mut Bus) {
+    /// Power-on state: every register cleared, Supervisor mode with interrupts
+    /// off, nothing fetched. The core then sets up stacks (`set_stack`) and
+    /// starts execution with `refill_arm` at its entry point.
+    pub fn reset(&mut self) {
         self.regs = [0; 16];
         self.banks = [[0; 7]; 6];
         self.spsr_banks = [0; 6];
-        self.intr_wait_continuing = false;
-        // Start in Supervisor mode with its stack, then let `switch_mode` bank it
-        // away when entering System mode for the cartridge.
+        self.pipeline = [0; 2];
         self.cpsr = mode::SVC | FLAG_I | FLAG_F;
-        self.regs[13] = 0x0300_7FE0;
-        self.banks[bank_of(mode::IRQ)][5] = 0x0300_7FA0;
-        self.banks[BANK_USR][5] = 0x0300_7F00;
-        if bus.bios.hle {
-            self.switch_mode(mode::SYS);
-            self.cpsr = mode::SYS;
-            self.refill_arm(bus, 0x0800_0000);
+        self.spsr = 0;
+        self.next_seq = true;
+        self.flushed = false;
+    }
+
+    /// Sets the stack pointer of mode `m`, banked or live, without changing mode.
+    pub fn set_stack(&mut self, m: u32, sp: u32) {
+        if bank_of(m) == bank_of(self.cpsr & MODE_MASK) {
+            self.regs[13] = sp;
         } else {
-            self.refill_arm(bus, vector::RESET);
+            self.banks[bank_of(m)][5] = sp;
         }
     }
 
@@ -253,7 +295,7 @@ impl Cpu {
 
     /// Restarts execution at `addr` in ARM state: refetches the pipeline (N + S)
     /// and leaves `regs[15]` at `addr + 8`.
-    pub fn refill_arm(&mut self, bus: &mut Bus, addr: u32) {
+    pub fn refill_arm<B: Bus>(&mut self, bus: &mut B, addr: u32) {
         let addr = addr & !3;
         self.pipeline[0] = bus.fetch32(addr, false);
         self.pipeline[1] = bus.fetch32(addr.wrapping_add(4), true);
@@ -263,7 +305,7 @@ impl Cpu {
     }
 
     /// Restarts execution at `addr` in Thumb state; `regs[15]` becomes `addr + 4`.
-    pub fn refill_thumb(&mut self, bus: &mut Bus, addr: u32) {
+    pub fn refill_thumb<B: Bus>(&mut self, bus: &mut B, addr: u32) {
         let addr = addr & !1;
         self.pipeline[0] = u32::from(bus.fetch16(addr, false));
         self.pipeline[1] = u32::from(bus.fetch16(addr.wrapping_add(2), true));
@@ -274,7 +316,7 @@ impl Cpu {
 
     /// Branches within the current instruction set.
     #[inline]
-    pub fn branch(&mut self, bus: &mut Bus, addr: u32) {
+    pub fn branch<B: Bus>(&mut self, bus: &mut B, addr: u32) {
         if self.is_thumb() {
             self.refill_thumb(bus, addr);
         } else {
@@ -284,7 +326,7 @@ impl Cpu {
 
     /// BX semantics: bit 0 of the address selects Thumb.
     #[inline]
-    pub fn branch_exchange(&mut self, bus: &mut Bus, addr: u32) {
+    pub fn branch_exchange<B: Bus>(&mut self, bus: &mut B, addr: u32) {
         if addr & 1 != 0 {
             self.cpsr |= FLAG_T;
             self.refill_thumb(bus, addr);
@@ -296,16 +338,16 @@ impl Cpu {
 
     /// Enters an exception: banks SPSR/LR, switches mode, disables IRQs, jumps to
     /// the vector in ARM state.
-    pub fn exception(&mut self, bus: &mut Bus, vec: u32, new_mode: u32, lr: u32) {
+    pub fn exception<B: Bus>(&mut self, bus: &mut B, vec: u32, new_mode: u32, lr: u32) {
         let old_cpsr = self.cpsr;
         self.switch_mode(new_mode);
         self.spsr = old_cpsr;
         self.regs[14] = lr;
         self.cpsr = (self.cpsr & !FLAG_T) | FLAG_I;
-        self.refill_arm(bus, vec);
+        self.refill_arm(bus, self.vector_base.wrapping_add(vec));
     }
 
-    fn take_irq(&mut self, bus: &mut Bus) {
+    fn take_irq<B: Bus>(&mut self, bus: &mut B) {
         // LR must point one instruction past the one about to execute, so that the
         // handler's `subs pc, lr, #4` returns to it.
         let lr = if self.is_thumb() { self.regs[15] } else { self.regs[15].wrapping_sub(4) };
@@ -313,18 +355,11 @@ impl Cpu {
     }
 
     /// Executes one instruction, or sleeps until the next event when halted.
-    pub fn step(&mut self, bus: &mut Bus) {
-        if bus.irq.halted || bus.irq.stopped {
-            if bus.irq.should_wake() {
-                bus.irq.halted = false;
-                bus.irq.stopped = false;
-            } else {
-                bus.scheduler.skip_to_next_event();
-                bus.run_events();
-                return;
-            }
+    pub fn step<B: Bus>(&mut self, bus: &mut B) {
+        if bus.sleeping() {
+            return;
         }
-        if bus.irq.should_interrupt() && !self.flag(FLAG_I) {
+        if bus.irq_pending() && !self.flag(FLAG_I) {
             self.take_irq(bus);
         }
 
@@ -335,14 +370,14 @@ impl Cpu {
         let opcode = self.pipeline[0];
         self.pipeline[0] = self.pipeline[1];
         if self.is_thumb() {
-            bus.pc = self.regs[15].wrapping_sub(4);
+            bus.set_pc(self.regs[15].wrapping_sub(4));
             self.pipeline[1] = u32::from(bus.fetch16(self.regs[15], seq));
             self.execute_thumb(bus, opcode as u16);
             if !self.flushed {
                 self.regs[15] = self.regs[15].wrapping_add(2);
             }
         } else {
-            bus.pc = self.regs[15].wrapping_sub(8);
+            bus.set_pc(self.regs[15].wrapping_sub(8));
             self.pipeline[1] = bus.fetch32(self.regs[15], seq);
             self.execute_arm(bus, opcode);
             if !self.flushed {
@@ -350,9 +385,7 @@ impl Cpu {
             }
         }
 
-        if bus.scheduler.is_due() {
-            bus.run_events();
-        }
+        bus.after_instruction();
     }
 
     // ---------------------------------------------------------------------------
@@ -388,21 +421,21 @@ impl Cpu {
 
     /// Word load with the ARM7's rotation of misaligned addresses.
     #[inline]
-    fn load_word(&mut self, bus: &mut Bus, addr: u32, seq: bool) -> u32 {
+    fn load_word<B: Bus>(&mut self, bus: &mut B, addr: u32, seq: bool) -> u32 {
         let value = bus.read32(addr, seq);
         value.rotate_right((addr & 3) * 8)
     }
 
     /// Halfword load: misaligned addresses rotate the halfword by 8 bits.
     #[inline]
-    fn load_half(&mut self, bus: &mut Bus, addr: u32, seq: bool) -> u32 {
+    fn load_half<B: Bus>(&mut self, bus: &mut B, addr: u32, seq: bool) -> u32 {
         let value = u32::from(bus.read16(addr, seq));
         value.rotate_right((addr & 1) * 8)
     }
 
     /// Signed halfword load: a misaligned address loads a signed byte instead.
     #[inline]
-    fn load_signed_half(&mut self, bus: &mut Bus, addr: u32, seq: bool) -> u32 {
+    fn load_signed_half<B: Bus>(&mut self, bus: &mut B, addr: u32, seq: bool) -> u32 {
         if addr & 1 != 0 {
             bus.read8(addr, seq) as i8 as i32 as u32
         } else {
@@ -493,7 +526,7 @@ mod tests {
 
     #[test]
     fn mode_switch_banks_sp_and_lr() {
-        let mut cpu = Cpu::new();
+        let mut cpu = Cpu::new(Arch::V4T);
         cpu.cpsr = mode::SYS;
         cpu.regs[13] = 0x1000;
         cpu.regs[14] = 0x2000;

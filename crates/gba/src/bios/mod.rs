@@ -19,6 +19,8 @@ pub struct Bios {
     image: Box<[u8; BIOS_SIZE]>,
     /// True when SWI calls are handled in Rust instead of executed from `image`.
     pub hle: bool,
+    /// An HLE IntrWait is in progress: the SWI re-executes after each interrupt.
+    pub intr_wait_continuing: bool,
 }
 
 impl Bios {
@@ -27,9 +29,9 @@ impl Bios {
             Some(data) if data.len() == BIOS_SIZE => {
                 let mut image = Box::new([0u8; BIOS_SIZE]);
                 image.copy_from_slice(&data);
-                Self { image, hle: false }
+                Self { image, hle: false, intr_wait_continuing: false }
             }
-            _ => Self { image: build_stub(), hle: true },
+            _ => Self { image: build_stub(), hle: true, intr_wait_continuing: false },
         }
     }
 

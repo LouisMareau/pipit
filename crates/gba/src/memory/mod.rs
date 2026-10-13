@@ -520,3 +520,78 @@ pub(crate) fn wr16(mem: &mut [u8], off: usize, v: u16) {
 pub(crate) fn wr32(mem: &mut [u8], off: usize, v: u32) {
     mem[off..off + 4].copy_from_slice(&v.to_le_bytes());
 }
+
+impl pipit_arm::Bus for Bus {
+    #[inline(always)]
+    fn read8(&mut self, addr: u32, seq: bool) -> u8 {
+        Self::read8(self, addr, seq)
+    }
+    #[inline(always)]
+    fn read16(&mut self, addr: u32, seq: bool) -> u16 {
+        Self::read16(self, addr, seq)
+    }
+    #[inline(always)]
+    fn read32(&mut self, addr: u32, seq: bool) -> u32 {
+        Self::read32(self, addr, seq)
+    }
+    #[inline(always)]
+    fn write8(&mut self, addr: u32, value: u8, seq: bool) {
+        Self::write8(self, addr, value, seq)
+    }
+    #[inline(always)]
+    fn write16(&mut self, addr: u32, value: u16, seq: bool) {
+        Self::write16(self, addr, value, seq)
+    }
+    #[inline(always)]
+    fn write32(&mut self, addr: u32, value: u32, seq: bool) {
+        Self::write32(self, addr, value, seq)
+    }
+    #[inline(always)]
+    fn fetch16(&mut self, addr: u32, seq: bool) -> u16 {
+        Self::fetch16(self, addr, seq)
+    }
+    #[inline(always)]
+    fn fetch32(&mut self, addr: u32, seq: bool) -> u32 {
+        Self::fetch32(self, addr, seq)
+    }
+    #[inline(always)]
+    fn idle(&mut self, cycles: u32) {
+        Self::idle(self, cycles)
+    }
+    #[inline(always)]
+    fn set_pc(&mut self, pc: u32) {
+        self.pc = pc;
+    }
+    #[inline(always)]
+    fn sleeping(&mut self) -> bool {
+        if !(self.irq.halted || self.irq.stopped) {
+            return false;
+        }
+        if self.irq.should_wake() {
+            self.irq.halted = false;
+            self.irq.stopped = false;
+            return false;
+        }
+        self.scheduler.skip_to_next_event();
+        self.run_events();
+        true
+    }
+    #[inline(always)]
+    fn irq_pending(&self) -> bool {
+        self.irq.should_interrupt()
+    }
+    #[inline(always)]
+    fn after_instruction(&mut self) {
+        if self.scheduler.is_due() {
+            self.run_events();
+        }
+    }
+    fn swi(&mut self, cpu: &mut pipit_arm::Cpu, number: u8) -> bool {
+        if self.bios.hle {
+            crate::bios::swi::call(cpu, self, number);
+            true
+        } else {
+            false
+        }
+    }
+}

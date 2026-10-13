@@ -4,10 +4,10 @@
 //! Handlers never write `regs[15]` directly: branches go through `Cpu::branch`.
 
 use super::{barrel_shift, mode, vector, Cpu, FLAG_C, FLAG_T};
-use crate::memory::Bus;
+use crate::Bus;
 
 impl Cpu {
-    pub(super) fn execute_arm(&mut self, bus: &mut Bus, op: u32) {
+    pub(super) fn execute_arm<B: Bus>(&mut self, bus: &mut B, op: u32) {
         if !self.condition(op >> 28) {
             return;
         }
@@ -48,22 +48,20 @@ impl Cpu {
         }
     }
 
-    fn arm_undefined(&mut self, bus: &mut Bus) {
+    fn arm_undefined<B: Bus>(&mut self, bus: &mut B) {
         let lr = self.regs[15].wrapping_sub(4);
         bus.idle(1);
         self.exception(bus, vector::UNDEFINED, mode::UND, lr);
     }
 
-    fn arm_swi(&mut self, bus: &mut Bus, op: u32) {
-        if bus.bios.hle {
-            crate::bios::swi::call(self, bus, (op >> 16) as u8);
-        } else {
+    fn arm_swi<B: Bus>(&mut self, bus: &mut B, op: u32) {
+        if !bus.swi(self, (op >> 16) as u8) {
             let lr = self.regs[15].wrapping_sub(4);
             self.exception(bus, vector::SWI, mode::SVC, lr);
         }
     }
 
-    fn arm_branch(&mut self, bus: &mut Bus, op: u32) {
+    fn arm_branch<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let offset = ((op << 8) as i32 >> 6) as u32;
         if op & (1 << 24) != 0 {
             self.regs[14] = self.regs[15].wrapping_sub(4);
@@ -72,7 +70,7 @@ impl Cpu {
         self.refill_arm(bus, target);
     }
 
-    fn arm_bx(&mut self, bus: &mut Bus, op: u32) {
+    fn arm_bx<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let target = self.regs[(op & 0xF) as usize];
         self.branch_exchange(bus, target);
     }
@@ -81,7 +79,7 @@ impl Cpu {
     // Data processing
     // ---------------------------------------------------------------------------
 
-    fn arm_data_processing(&mut self, bus: &mut Bus, op: u32) {
+    fn arm_data_processing<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let opcode = (op >> 21) & 0xF;
         let set_flags = op & (1 << 20) != 0;
         let rn = ((op >> 16) & 0xF) as usize;
@@ -242,7 +240,7 @@ impl Cpu {
     // Multiply
     // ---------------------------------------------------------------------------
 
-    fn arm_multiply(&mut self, bus: &mut Bus, op: u32) {
+    fn arm_multiply<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let rd = ((op >> 16) & 0xF) as usize;
         let rn = ((op >> 12) & 0xF) as usize;
         let rs = ((op >> 8) & 0xF) as usize;
@@ -262,7 +260,7 @@ impl Cpu {
         }
     }
 
-    fn arm_multiply_long(&mut self, bus: &mut Bus, op: u32) {
+    fn arm_multiply_long<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let rd_hi = ((op >> 16) & 0xF) as usize;
         let rd_lo = ((op >> 12) & 0xF) as usize;
         let rs = ((op >> 8) & 0xF) as usize;
@@ -295,7 +293,7 @@ impl Cpu {
     // Loads and stores
     // ---------------------------------------------------------------------------
 
-    fn arm_swap(&mut self, bus: &mut Bus, op: u32) {
+    fn arm_swap<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let rn = ((op >> 16) & 0xF) as usize;
         let rd = ((op >> 12) & 0xF) as usize;
         let rm = (op & 0xF) as usize;
@@ -314,7 +312,7 @@ impl Cpu {
         self.next_seq = false;
     }
 
-    fn arm_single_transfer(&mut self, bus: &mut Bus, op: u32) {
+    fn arm_single_transfer<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let pre = op & (1 << 24) != 0;
         let up = op & (1 << 23) != 0;
         let byte = op & (1 << 22) != 0;
@@ -366,7 +364,7 @@ impl Cpu {
         self.next_seq = false;
     }
 
-    fn arm_halfword_transfer(&mut self, bus: &mut Bus, op: u32) {
+    fn arm_halfword_transfer<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let pre = op & (1 << 24) != 0;
         let up = op & (1 << 23) != 0;
         let writeback = op & (1 << 21) != 0 || !pre;
@@ -415,7 +413,7 @@ impl Cpu {
         self.next_seq = false;
     }
 
-    fn arm_block_transfer(&mut self, bus: &mut Bus, op: u32) {
+    fn arm_block_transfer<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let pre = op & (1 << 24) != 0;
         let up = op & (1 << 23) != 0;
         let psr_or_user = op & (1 << 22) != 0;

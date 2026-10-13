@@ -4,10 +4,10 @@
 //! address plus 4 throughout.
 
 use super::{barrel_shift, mode, vector, Cpu, FLAG_C};
-use crate::memory::Bus;
+use crate::Bus;
 
 impl Cpu {
-    pub(super) fn execute_thumb(&mut self, bus: &mut Bus, op: u16) {
+    pub(super) fn execute_thumb<B: Bus>(&mut self, bus: &mut B, op: u16) {
         let op = u32::from(op);
         match op >> 13 {
             0b000 => {
@@ -68,23 +68,21 @@ impl Cpu {
         }
     }
 
-    fn thumb_undefined(&mut self, bus: &mut Bus) {
+    fn thumb_undefined<B: Bus>(&mut self, bus: &mut B) {
         let lr = self.regs[15].wrapping_sub(2);
         bus.idle(1);
         self.exception(bus, vector::UNDEFINED, mode::UND, lr);
     }
 
-    fn thumb_swi(&mut self, bus: &mut Bus, op: u32) {
-        if bus.bios.hle {
-            crate::bios::swi::call(self, bus, op as u8);
-        } else {
+    fn thumb_swi<B: Bus>(&mut self, bus: &mut B, op: u32) {
+        if !bus.swi(self, op as u8) {
             let lr = self.regs[15].wrapping_sub(2);
             self.exception(bus, vector::SWI, mode::SVC, lr);
         }
     }
 
     // Format 1: move shifted register.
-    fn thumb_shift(&mut self, _bus: &mut Bus, op: u32) {
+    fn thumb_shift<B: Bus>(&mut self, _bus: &mut B, op: u32) {
         let kind = (op >> 11) & 3;
         let amount = (op >> 6) & 0x1F;
         let rs = ((op >> 3) & 7) as usize;
@@ -127,7 +125,7 @@ impl Cpu {
     }
 
     // Format 4: ALU operations.
-    fn thumb_alu(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_alu<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let rs = ((op >> 3) & 7) as usize;
         let rd = (op & 7) as usize;
         let a = self.regs[rd];
@@ -187,7 +185,7 @@ impl Cpu {
     }
 
     // Format 5: hi register operations / branch exchange.
-    fn thumb_hi_reg(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_hi_reg<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let rs = (((op >> 3) & 7) | ((op >> 3) & 8)) as usize;
         let rd = ((op & 7) | ((op >> 4) & 8)) as usize;
         let b = self.regs[rs];
@@ -215,7 +213,7 @@ impl Cpu {
     }
 
     // Format 6: PC-relative load.
-    fn thumb_load_pc_relative(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_load_pc_relative<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let rd = ((op >> 8) & 7) as usize;
         let addr = (self.regs[15] & !2).wrapping_add((op & 0xFF) * 4);
         self.regs[rd] = bus.read32(addr, false);
@@ -224,7 +222,7 @@ impl Cpu {
     }
 
     // Format 7: load / store with register offset.
-    fn thumb_load_store_register(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_load_store_register<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let ro = ((op >> 6) & 7) as usize;
         let rb = ((op >> 3) & 7) as usize;
         let rd = (op & 7) as usize;
@@ -245,7 +243,7 @@ impl Cpu {
     }
 
     // Format 8: load / store sign-extended byte / halfword.
-    fn thumb_load_store_signed(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_load_store_signed<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let ro = ((op >> 6) & 7) as usize;
         let rb = ((op >> 3) & 7) as usize;
         let rd = (op & 7) as usize;
@@ -269,7 +267,7 @@ impl Cpu {
     }
 
     // Format 9: load / store with immediate offset.
-    fn thumb_load_store_immediate(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_load_store_immediate<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let rb = ((op >> 3) & 7) as usize;
         let rd = (op & 7) as usize;
         let offset = (op >> 6) & 0x1F;
@@ -289,7 +287,7 @@ impl Cpu {
     }
 
     // Format 10: load / store halfword.
-    fn thumb_load_store_half(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_load_store_half<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let rb = ((op >> 3) & 7) as usize;
         let rd = (op & 7) as usize;
         let addr = self.regs[rb].wrapping_add(((op >> 6) & 0x1F) * 2);
@@ -303,7 +301,7 @@ impl Cpu {
     }
 
     // Format 11: SP-relative load / store.
-    fn thumb_load_store_sp(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_load_store_sp<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let rd = ((op >> 8) & 7) as usize;
         let addr = self.regs[13].wrapping_add((op & 0xFF) * 4);
         if op & (1 << 11) != 0 {
@@ -337,7 +335,7 @@ impl Cpu {
     }
 
     // Format 14: push / pop registers.
-    fn thumb_push_pop(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_push_pop<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let list = op & 0xFF;
         let extra = op & (1 << 8) != 0;
         let count = list.count_ones() + u32::from(extra);
@@ -381,7 +379,7 @@ impl Cpu {
     }
 
     // Format 15: multiple load / store.
-    fn thumb_multiple(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_multiple<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let rb = ((op >> 8) & 7) as usize;
         let list = op & 0xFF;
         let mut addr = self.regs[rb];
@@ -432,7 +430,7 @@ impl Cpu {
     }
 
     // Format 16: conditional branch.
-    fn thumb_conditional_branch(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_conditional_branch<B: Bus>(&mut self, bus: &mut B, op: u32) {
         if self.condition((op >> 8) & 0xF) {
             let offset = ((op & 0xFF) as u8 as i8 as i32 * 2) as u32;
             let target = self.regs[15].wrapping_add(offset);
@@ -441,14 +439,14 @@ impl Cpu {
     }
 
     // Format 18: unconditional branch.
-    fn thumb_branch(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_branch<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let offset = (((op & 0x7FF) << 21) as i32 >> 20) as u32;
         let target = self.regs[15].wrapping_add(offset);
         self.refill_thumb(bus, target);
     }
 
     // Format 19: long branch with link, in two halves.
-    fn thumb_long_branch(&mut self, bus: &mut Bus, op: u32) {
+    fn thumb_long_branch<B: Bus>(&mut self, bus: &mut B, op: u32) {
         let offset = op & 0x7FF;
         if op & (1 << 11) == 0 {
             let high = ((offset << 21) as i32 >> 9) as u32;

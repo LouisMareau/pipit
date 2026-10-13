@@ -1,0 +1,11 @@
+[package]
+name = "pipit-arm"
+description = "The ARM interpreter shared by the Game Boy Advance and DS cores"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde = { workspace = true }

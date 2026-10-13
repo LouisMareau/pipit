@@ -4,8 +4,8 @@
 //! results, following the documented calling convention. Memory is touched through
 //! the bus so timing and side effects (DMA, I/O) stay right.
 
-use crate::cpu::{mode, Cpu};
 use crate::memory::Bus;
+use pipit_arm::{mode, Cpu};
 
 /// Where the BIOS keeps the interrupt flags that `IntrWait` watches.
 const INTR_CHECK_FLAGS: u32 = 0x0300_7FF8;
@@ -127,17 +127,17 @@ fn register_ram_reset(_cpu: &mut Cpu, bus: &mut Bus) {
 /// *at the SWI*, so the interrupt return re-executes it and checks again.
 fn intr_wait(cpu: &mut Cpu, bus: &mut Bus, discard_old: bool, flags: u16) {
     bus.irq.ime = true;
-    if !cpu.intr_wait_continuing && discard_old {
+    if !bus.bios.intr_wait_continuing && discard_old {
         let seen = bus.load16(INTR_CHECK_FLAGS);
         bus.store16(INTR_CHECK_FLAGS, seen & !flags);
     }
     let seen = bus.load16(INTR_CHECK_FLAGS);
     if seen & flags != 0 {
         bus.store16(INTR_CHECK_FLAGS, seen & !flags);
-        cpu.intr_wait_continuing = false;
+        bus.bios.intr_wait_continuing = false;
         return;
     }
-    cpu.intr_wait_continuing = true;
+    bus.bios.intr_wait_continuing = true;
     let swi_addr = cpu.pc();
     cpu.branch(bus, swi_addr);
     bus.irq.halted = true;

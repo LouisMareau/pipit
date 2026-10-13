@@ -17,7 +17,6 @@
 pub mod audio;
 pub mod bios;
 pub mod cartridge;
-pub mod cpu;
 pub mod dma;
 pub mod irq;
 pub mod keypad;
@@ -37,6 +36,7 @@ pub use link::Link;
 pub use memory::Bus;
 pub use snapshot::StateError;
 
+use pipit_arm::{mode, Arch, Cpu};
 use serde::{Deserialize, Serialize};
 
 /// Screen width in pixels.
@@ -49,7 +49,7 @@ pub const CLOCK_HZ: u32 = 16_777_216;
 pub const CYCLES_PER_FRAME: u32 = 280_896;
 
 /// Save-state file format. 2: the serial port gained state (link cable).
-const STATE_FORMAT: snapshot::Format = snapshot::Format { magic: *b"PIPT", version: 2 };
+const STATE_FORMAT: snapshot::Format = snapshot::Format { magic: *b"PIPT", version: 3 };
 
 /// FNV-1a, 64-bit.
 pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
@@ -61,7 +61,7 @@ pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
 /// A whole Game Boy Advance.
 #[derive(Serialize, Deserialize)]
 pub struct Gba {
-    pub cpu: cpu::Cpu,
+    pub cpu: Cpu,
     pub bus: Bus,
 }
 
@@ -71,8 +71,20 @@ impl Gba {
     pub fn new(rom: Vec<u8>, bios: Option<Vec<u8>>) -> Self {
         let cart = Cartridge::new(rom);
         let mut bus = Bus::new(cart, bios);
-        let mut cpu = cpu::Cpu::new();
-        cpu.reset(&mut bus);
+        // The state the BIOS leaves the CPU in before jumping to the cartridge,
+        // or the real reset vector when a BIOS image is loaded.
+        let mut cpu = Cpu::new(Arch::V4T);
+        cpu.reset();
+        cpu.regs[13] = 0x0300_7FE0;
+        cpu.set_stack(mode::IRQ, 0x0300_7FA0);
+        cpu.set_stack(mode::SYS, 0x0300_7F00);
+        if bus.bios.hle {
+            cpu.switch_mode(mode::SYS);
+            cpu.cpsr = mode::SYS;
+            cpu.refill_arm(&mut bus, 0x0800_0000);
+        } else {
+            cpu.refill_arm(&mut bus, pipit_arm::vector::RESET);
+        }
         Self { cpu, bus }
     }
 
