@@ -1,6 +1,9 @@
 // On-screen controls for phones and tablets, in the style of a round D-pad disc
 // and a round A/B disc. Pointer events handle multi-touch; the D-pad disc resolves
-// eight directions from the touch position so diagonals work anywhere on it.
+// eight directions from the touch position so diagonals work anywhere on it. A
+// corner gives one direction, the one that differs from the last single
+// direction held, so a thumb sliding from Up towards Right turns Right as soon
+// as it reaches the corner (see `resolve`).
 //
 // The DOM is grouped as a left side (L, the D-pad disc, Select) and a right side
 // (R, the A/B disc, Start). CSS arranges them either beside the screen with
@@ -16,6 +19,11 @@ export class TouchControls {
   readonly element: HTMLDivElement;
   private held = 0;
   private dpadKeys = 0;
+  /** The last single direction the D-pad gave (kept across touches). */
+  private lastCardinal = 0;
+  /** The corner the thumb is in, and what it was resolved to. */
+  private corner = 0;
+  private cornerKeys = 0;
   private buttons = new Map<number, number>(); // pointerId → key bits
   onChange: (keys: number) => void = () => {};
 
@@ -92,7 +100,9 @@ export class TouchControls {
           [-2]: Key.Up,
           [-1]: Key.Up | Key.Right,
         };
-        keys = table[sector] ?? 0;
+        keys = this.resolve(table[sector] ?? 0);
+      } else {
+        this.resolve(0);
       }
       if (keys !== this.dpadKeys) {
         this.dpadKeys = keys;
@@ -103,7 +113,11 @@ export class TouchControls {
     dpad.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       dpadPointer = e.pointerId;
-      dpad.setPointerCapture(e.pointerId);
+      try {
+        dpad.setPointerCapture(e.pointerId);
+      } catch {
+        // A pointer the browser does not know (a synthetic event in tests): no capture.
+      }
       update(e);
     });
     dpad.addEventListener("pointermove", (e) => {
@@ -112,6 +126,7 @@ export class TouchControls {
     const end = (e: PointerEvent) => {
       if (e.pointerId !== dpadPointer) return;
       dpadPointer = null;
+      this.resolve(0);
       this.dpadKeys = 0;
       dpad.dataset["dir"] = "0";
       this.emit();
@@ -149,6 +164,33 @@ export class TouchControls {
       );
     }
     this.element.style.setProperty("--pad-size", `${Math.max(120, Math.floor(size))}px`);
+  }
+
+  /**
+   * What the thumb's zone means. A single direction is itself, and is
+   * remembered. A corner gives the one direction that differs from the
+   * remembered one, so sliding from Up towards Right turns Right the moment
+   * the thumb reaches the corner, and sliding back from Right gives Up; the
+   * choice holds while the thumb stays in that corner. A corner with no such
+   * history (a fresh press, or coming from the other axis) keeps both
+   * directions, as a real D-pad would.
+   */
+  private resolve(zone: number): number {
+    const singles = [Key.Up, Key.Down, Key.Left, Key.Right].filter((k) => zone & k);
+    if (singles.length === 1) {
+      this.lastCardinal = zone;
+      this.corner = 0;
+      return zone;
+    }
+    if (singles.length === 2) {
+      if (zone !== this.corner) {
+        this.corner = zone;
+        this.cornerKeys = singles.includes(this.lastCardinal) ? zone & ~this.lastCardinal : zone;
+      }
+      return this.cornerKeys;
+    }
+    this.corner = 0;
+    return 0;
   }
 
   private emit() {

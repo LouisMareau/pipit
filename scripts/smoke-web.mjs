@@ -390,6 +390,21 @@ for (const [name, width, height] of [
       "(() => { const s = document.querySelector('.stage'); return !s.classList.contains('custom') && !s.classList.contains('editing'); })()",
     );
     phone[name].editor = { editing, handles, cancelled };
+    // The D-pad's corners: from Up, the up-right corner gives Right (16); after
+    // Right, the same corner gives Up (64); releasing gives nothing.
+    phone[name].dpad = await evaluate(`(() => {
+      const dpad = document.querySelector('.dpad');
+      const r = dpad.getBoundingClientRect();
+      const at = (type, fx, fy) => dpad.dispatchEvent(new PointerEvent(type, { pointerId: 7, pointerType: 'touch', isPrimary: true, bubbles: true, clientX: r.left + r.width * fx, clientY: r.top + r.height * fy }));
+      const dir = () => Number(dpad.dataset.dir);
+      const out = [];
+      at('pointerdown', 0.5, 0.1); out.push(dir());
+      at('pointermove', 0.85, 0.15); out.push(dir());
+      at('pointermove', 0.9, 0.5); out.push(dir());
+      at('pointermove', 0.85, 0.15); out.push(dir());
+      at('pointerup', 0.85, 0.15); out.push(dir());
+      return out;
+    })()`);
   }
   if (name === "landscape") {
     // The menu disc opens the drawer with the game title; the backdrop closes it.
@@ -559,6 +574,7 @@ if (
   !fastActive ||
   !fastReleased ||
   phone.portrait.layout !== "gbasp" ||
+  JSON.stringify(phone.portrait.dpad) !== "[64,16,16,64,0]" ||
   phone.landscape.layout !== "gba" ||
   !phone.portrait.touchShown ||
   phone.portrait.overflow > 0 ||
