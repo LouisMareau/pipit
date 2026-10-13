@@ -3,7 +3,7 @@
 //! Formats are numbered as in the data sheet. `regs[15]` reads as the instruction
 //! address plus 4 throughout.
 
-use super::{barrel_shift, mode, vector, Cpu, FLAG_C};
+use super::{barrel_shift, mode, vector, Arch, Cpu, FLAG_C, FLAG_T};
 use crate::Bus;
 
 impl Cpu {
@@ -59,10 +59,14 @@ impl Cpu {
                 }
             }
             _ => {
-                if op & (1 << 12) == 0 {
-                    self.thumb_branch(bus, op)
-                } else {
+                if op & (1 << 12) != 0 {
                     self.thumb_long_branch(bus, op)
+                } else if op & (1 << 11) == 0 {
+                    self.thumb_branch(bus, op)
+                } else if self.arch == Arch::V5TE {
+                    self.thumb_blx_suffix(bus, op)
+                } else {
+                    self.thumb_undefined(bus)
                 }
             }
         }
@@ -208,7 +212,13 @@ impl Cpu {
                     self.regs[rd] = b;
                 }
             }
-            _ => self.branch_exchange(bus, b),
+            _ => {
+                // Bit 7 makes it BLX on ARMv5.
+                if op & (1 << 7) != 0 && self.arch == Arch::V5TE {
+                    self.regs[14] = self.regs[15].wrapping_sub(2) | 1;
+                }
+                self.branch_exchange(bus, b)
+            }
         }
     }
 
@@ -355,7 +365,7 @@ impl Cpu {
                 addr = addr.wrapping_add(4);
                 self.regs[13] = addr;
                 bus.idle(1);
-                self.refill_thumb(bus, value);
+                self.load_pc(bus, value);
             } else {
                 self.regs[13] = addr;
                 bus.idle(1);
@@ -443,6 +453,15 @@ impl Cpu {
         let offset = (((op & 0x7FF) << 21) as i32 >> 20) as u32;
         let target = self.regs[15].wrapping_add(offset);
         self.refill_thumb(bus, target);
+    }
+
+    /// ARMv5: the second half of a BLX (11101), which lands in ARM state.
+    fn thumb_blx_suffix<B: Bus>(&mut self, bus: &mut B, op: u32) {
+        let next = self.regs[15].wrapping_sub(2);
+        let target = self.regs[14].wrapping_add((op & 0x7FF) << 1) & !3;
+        self.regs[14] = next | 1;
+        self.cpsr &= !FLAG_T;
+        self.refill_arm(bus, target);
     }
 
     // Format 19: long branch with link, in two halves.

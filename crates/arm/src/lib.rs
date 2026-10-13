@@ -38,6 +38,18 @@ pub trait Bus {
     /// A software interrupt: true when handled here (a BIOS replacement), false
     /// to take the exception.
     fn swi(&mut self, cpu: &mut Cpu, number: u8) -> bool;
+    /// MRC from the system control coprocessor (ARM9 only): register `cn`,
+    /// `cm`, opcode 2 `op2`.
+    fn cp15_read(&mut self, cn: u32, cm: u32, op2: u32) -> u32 {
+        let _ = (cn, cm, op2);
+        0
+    }
+    /// MCR to the system control coprocessor (ARM9 only). Gets the CPU too,
+    /// since some registers change how it runs (the vector base, waiting for
+    /// an interrupt).
+    fn cp15_write(&mut self, cpu: &mut Cpu, cn: u32, cm: u32, op2: u32, value: u32) {
+        let _ = (cpu, cn, cm, op2, value);
+    }
 }
 
 /// Which generation of the instruction set the core implements.
@@ -53,6 +65,8 @@ pub const FLAG_N: u32 = 1 << 31;
 pub const FLAG_Z: u32 = 1 << 30;
 pub const FLAG_C: u32 = 1 << 29;
 pub const FLAG_V: u32 = 1 << 28;
+/// Sticky saturation flag (ARMv5TE).
+pub const FLAG_Q: u32 = 1 << 27;
 pub const FLAG_I: u32 = 1 << 7;
 pub const FLAG_F: u32 = 1 << 6;
 pub const FLAG_T: u32 = 1 << 5;
@@ -333,6 +347,17 @@ impl Cpu {
         } else {
             self.cpsr &= !FLAG_T;
             self.refill_arm(bus, addr);
+        }
+    }
+
+    /// Writes a value loaded from memory to PC: on ARMv5 bit 0 selects the
+    /// instruction set (LDR, LDM and POP interwork), on ARMv4 the current set stays.
+    #[inline]
+    pub fn load_pc<B: Bus>(&mut self, bus: &mut B, value: u32) {
+        if self.arch == Arch::V5TE {
+            self.branch_exchange(bus, value);
+        } else {
+            self.branch(bus, value);
         }
     }
 

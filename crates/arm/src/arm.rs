@@ -3,11 +3,18 @@
 //! Decoding keys on bits 27-20 and 7-4, which is enough to tell every class apart.
 //! Handlers never write `regs[15]` directly: branches go through `Cpu::branch`.
 
-use super::{barrel_shift, mode, vector, Cpu, FLAG_C, FLAG_T};
+use super::{barrel_shift, mode, vector, Arch, Cpu, FLAG_C, FLAG_Q, FLAG_T};
 use crate::Bus;
 
 impl Cpu {
     pub(super) fn execute_arm<B: Bus>(&mut self, bus: &mut B, op: u32) {
+        if op >> 28 == 0xF {
+            // "Never" on ARMv4; the unconditional space (BLX, PLD) on ARMv5.
+            if self.arch == Arch::V5TE {
+                self.arm_unconditional(bus, op);
+            }
+            return;
+        }
         if !self.condition(op >> 28) {
             return;
         }
@@ -15,6 +22,19 @@ impl Cpu {
         match key {
             // Branch and exchange: 0001 0010 .... .... .... 0001
             0x121 if op & 0x0FFF_FF00 == 0x012F_FF00 => self.arm_bx(bus, op),
+            // ARMv5: BLX Rm (0001 0010 ... 0011), CLZ (0001 0110 ... 0001),
+            // QADD/QSUB/QDADD/QDSUB (0001 0xx0 ... 0101), SMLAxy and the other
+            // halfword multiplies (0001 0xx0 ... 1yx0).
+            0x123 if op & 0x0FFF_FF00 == 0x012F_FF00 && self.arch == Arch::V5TE => {
+                self.arm_blx_reg(bus, op)
+            }
+            0x161 if op & 0x0FFF_0FF0 == 0x016F_0F10 && self.arch == Arch::V5TE => self.arm_clz(op),
+            0x105 | 0x125 | 0x145 | 0x165 if self.arch == Arch::V5TE => {
+                self.arm_saturating(bus, op)
+            }
+            k if k & 0xF99 == 0x108 && self.arch == Arch::V5TE => {
+                self.arm_halfword_multiply(bus, op)
+            }
             // Multiply / multiply long: 0000 00xx 1001 and 0000 1xxx 1001
             0x009 | 0x019 | 0x029 | 0x039 => self.arm_multiply(bus, op),
             0x089 | 0x099 | 0x0A9 | 0x0B9 | 0x0C9 | 0x0D9 | 0x0E9 | 0x0F9 => {
@@ -43,8 +63,134 @@ impl Cpu {
             k if k & 0xE00 == 0xA00 => self.arm_branch(bus, op),
             // Software interrupt: 1111 xxxx
             k if k & 0xF00 == 0xF00 => self.arm_swi(bus, op),
-            // Coprocessor instructions: the GBA has none.
+            // Coprocessor register transfers: 1110 xxxx .... .... .... xxx1
+            k if k & 0xF01 == 0xE01 => self.arm_coprocessor(bus, op),
+            // Other coprocessor instructions: none of these machines has them.
             _ => self.arm_undefined(bus),
+        }
+    }
+
+    /// The ARMv5 unconditional space: BLX with an immediate (1111 101H), PLD
+    /// (1111 0101 x101, a hint: nothing to do); the rest is undefined.
+    fn arm_unconditional<B: Bus>(&mut self, bus: &mut B, op: u32) {
+        if op & 0x0E00_0000 == 0x0A00_0000 {
+            let offset = ((op << 8) as i32 >> 6) as u32 | ((op >> 23) & 2);
+            self.regs[14] = self.regs[15].wrapping_sub(4);
+            let target = self.regs[15].wrapping_add(offset);
+            self.cpsr |= FLAG_T;
+            self.refill_thumb(bus, target);
+        } else if op & 0x0D70_F000 != 0x0550_F000 {
+            self.arm_undefined(bus);
+        }
+    }
+
+    fn arm_blx_reg<B: Bus>(&mut self, bus: &mut B, op: u32) {
+        let target = self.regs[(op & 0xF) as usize];
+        self.regs[14] = self.regs[15].wrapping_sub(4);
+        self.branch_exchange(bus, target);
+    }
+
+    fn arm_clz(&mut self, op: u32) {
+        let rd = ((op >> 12) & 0xF) as usize;
+        self.regs[rd] = self.regs[(op & 0xF) as usize].leading_zeros();
+    }
+
+    /// QADD, QSUB, QDADD, QDSUB: Rd = Rm ± Rn (Rn doubled first for the D forms),
+    /// saturated, with Q set when anything saturated.
+    fn arm_saturating<B: Bus>(&mut self, bus: &mut B, op: u32) {
+        let rd = ((op >> 12) & 0xF) as usize;
+        let m = self.regs[(op & 0xF) as usize] as i32;
+        let mut n = self.regs[((op >> 16) & 0xF) as usize] as i32;
+        if op & (1 << 22) != 0 {
+            let doubled = n.saturating_mul(2);
+            if doubled != n.wrapping_mul(2) {
+                self.cpsr |= FLAG_Q;
+            }
+            n = doubled;
+        }
+        let (exact, saturated) = if op & (1 << 21) != 0 {
+            (m.wrapping_sub(n), m.saturating_sub(n))
+        } else {
+            (m.wrapping_add(n), m.saturating_add(n))
+        };
+        if exact != saturated {
+            self.cpsr |= FLAG_Q;
+        }
+        self.regs[rd] = saturated as u32;
+        bus.idle(1);
+    }
+
+    /// SMLAxy, SMLAWy/SMULWy, SMLALxy, SMULxy: signed 16-bit halves (x, y pick
+    /// top or bottom), with Q on an overflowing accumulate. No NZCV changes.
+    fn arm_halfword_multiply<B: Bus>(&mut self, bus: &mut B, op: u32) {
+        let rd = ((op >> 16) & 0xF) as usize;
+        let rn = ((op >> 12) & 0xF) as usize;
+        let rs = ((op >> 8) & 0xF) as usize;
+        let rm = (op & 0xF) as usize;
+        let half = |value: u32, top: bool| -> i32 {
+            (if top { value >> 16 } else { value }) as u16 as i16 as i32
+        };
+        let x = op & (1 << 5) != 0;
+        let y = op & (1 << 6) != 0;
+        match (op >> 21) & 3 {
+            0 => {
+                let product = half(self.regs[rm], x).wrapping_mul(half(self.regs[rs], y));
+                let (result, overflow) = product.overflowing_add(self.regs[rn] as i32);
+                if overflow {
+                    self.cpsr |= FLAG_Q;
+                }
+                self.regs[rd] = result as u32;
+                bus.idle(1);
+            }
+            1 => {
+                let product = ((self.regs[rm] as i32 as i64 * i64::from(half(self.regs[rs], y)))
+                    >> 16) as i32;
+                if x {
+                    self.regs[rd] = product as u32;
+                } else {
+                    let (result, overflow) = product.overflowing_add(self.regs[rn] as i32);
+                    if overflow {
+                        self.cpsr |= FLAG_Q;
+                    }
+                    self.regs[rd] = result as u32;
+                }
+                bus.idle(1);
+            }
+            2 => {
+                let product = i64::from(half(self.regs[rm], x)) * i64::from(half(self.regs[rs], y));
+                let acc = ((u64::from(self.regs[rd]) << 32) | u64::from(self.regs[rn])) as i64;
+                let result = acc.wrapping_add(product) as u64;
+                self.regs[rn] = result as u32;
+                self.regs[rd] = (result >> 32) as u32;
+                bus.idle(2);
+            }
+            _ => {
+                self.regs[rd] = half(self.regs[rm], x).wrapping_mul(half(self.regs[rs], y)) as u32;
+                bus.idle(1);
+            }
+        }
+    }
+
+    /// MRC/MCR: only the ARM9's system control coprocessor (CP15) exists.
+    fn arm_coprocessor<B: Bus>(&mut self, bus: &mut B, op: u32) {
+        if self.arch != Arch::V5TE || (op >> 8) & 0xF != 15 {
+            self.arm_undefined(bus);
+            return;
+        }
+        let cn = (op >> 16) & 0xF;
+        let cm = op & 0xF;
+        let op2 = (op >> 5) & 7;
+        let rd = ((op >> 12) & 0xF) as usize;
+        if op & (1 << 20) != 0 {
+            let value = bus.cp15_read(cn, cm, op2);
+            if rd == 15 {
+                self.cpsr = (self.cpsr & 0x0FFF_FFFF) | (value & 0xF000_0000);
+            } else {
+                self.regs[rd] = value;
+            }
+        } else {
+            let value = if rd == 15 { self.regs[15].wrapping_add(4) } else { self.regs[rd] };
+            bus.cp15_write(self, cn, cm, op2, value);
         }
     }
 
@@ -345,7 +491,7 @@ impl Cpu {
             }
             // A loaded value overrides the writeback when Rd == Rn.
             if rd == 15 {
-                self.refill_arm(bus, value);
+                self.load_pc(bus, value);
             } else {
                 self.regs[rd] = value;
             }
@@ -399,13 +545,35 @@ impl Cpu {
                 self.regs[rd] = value;
             }
         } else {
-            // Only STRH exists on ARMv4; the signed forms are undefined when storing.
-            if kind != 1 {
-                self.arm_undefined(bus);
-                return;
+            match kind {
+                1 => {
+                    let value =
+                        if rd == 15 { self.regs[15].wrapping_add(4) } else { self.regs[rd] };
+                    bus.write16(addr, value as u16, false);
+                }
+                // LDRD and STRD use the store encodings of the signed forms on ARMv5.
+                2 if self.arch == Arch::V5TE => {
+                    let lo = bus.read32(addr, false);
+                    let hi = bus.read32(addr.wrapping_add(4), true);
+                    bus.idle(1);
+                    if writeback {
+                        self.regs[rn] = offset_base;
+                    }
+                    self.regs[rd] = lo;
+                    self.regs[(rd + 1) & 0xF] = hi;
+                    self.next_seq = false;
+                    return;
+                }
+                3 if self.arch == Arch::V5TE => {
+                    bus.write32(addr, self.regs[rd], false);
+                    bus.write32(addr.wrapping_add(4), self.regs[(rd + 1) & 0xF], true);
+                }
+                // Only STRH exists on ARMv4; the signed forms are undefined when storing.
+                _ => {
+                    self.arm_undefined(bus);
+                    return;
+                }
             }
-            let value = if rd == 15 { self.regs[15].wrapping_add(4) } else { self.regs[rd] };
-            bus.write16(addr, value as u16, false);
             if writeback {
                 self.regs[rn] = offset_base;
             }
@@ -467,7 +635,7 @@ impl Cpu {
                             self.refill_arm(bus, value);
                         }
                     } else {
-                        self.refill_arm(bus, value);
+                        self.load_pc(bus, value);
                     }
                 } else if user_bank {
                     self.set_user_reg(r, value);
