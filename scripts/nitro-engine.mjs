@@ -1,6 +1,6 @@
 // Runs every Nitro Engine example (small 3D demos, MIT) headless for 200
 // frames and screenshots each into build/nds/ne/, reporting the ones whose
-// top screen stayed black. They are eyeball tests of the 3D engine: compare
+// screens both stayed black (some wait for a key on the bottom screen). They are eyeball tests of the 3D engine: compare
 // the screenshots with the examples' own screenshots in the Nitro Engine
 // repository when something looks off.
 //
@@ -24,8 +24,8 @@ for (const file of readdirSync(dir).filter((f) => f.endsWith(".nds")).sort()) {
   execFileSync(exe, ["run", `${dir}/${file}`, "--frames", "200", "--screenshot", shot], { stdio: "ignore" });
   const png = PNG.decode(readFileSync(shot));
   let lit = 0;
-  for (let i = 0; i < 256 * 192 * 4; i += 4) if (png.data[i] | png.data[i + 1] | png.data[i + 2]) lit++;
+  for (let i = 0; i < png.data.length; i += 4) if (png.data[i] | png.data[i + 1] | png.data[i + 2]) lit++;
   if (lit === 0) blank++;
-  console.log(`${name}: ${lit === 0 ? "top screen black" : `${lit} lit pixels on top`}`);
+  console.log(`${name}: ${lit === 0 ? "both screens black" : `${lit} lit pixels`}`);
 }
 process.exit(blank ? 1 : 0);
