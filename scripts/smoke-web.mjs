@@ -566,6 +566,13 @@ await receiver.evaluate("window.confirm = () => true; document.querySelector('.r
 await sleep(800);
 xfer.removed = await receiver.evaluate(`window.pipit.listRoms().then((rows) => !rows.some((r) => r.id === ${xferId}))`);
 await receiver.evaluate("document.querySelector('[data-action=receive]').click(); true");
+// Keys bound to the game (Z is A, X is B) must type into the code field: no game is shown.
+await receiver.evaluate("document.querySelector('.transfer-input').focus(); true");
+for (const [code, key, keyCode] of [["KeyZ", "z", 90], ["KeyX", "x", 88]]) {
+  await receiver.send("Input.dispatchKeyEvent", { type: "keyDown", code, key, text: key, windowsVirtualKeyCode: keyCode });
+  await receiver.send("Input.dispatchKeyEvent", { type: "keyUp", code, key, windowsVirtualKeyCode: keyCode });
+}
+xfer.typed = await receiver.evaluate("document.querySelector('.transfer-input').value");
 await receiver.evaluate(`(() => { document.querySelector('.transfer-input').value = ${JSON.stringify(xfer.code)}; document.querySelector('[data-action=connect-form]').requestSubmit(); return true; })()`);
 await sleep(2500);
 xfer.words = { host: await evaluate("document.querySelector('.transfer-dialog .transfer-words').textContent"), guest: await receiver.evaluate("document.querySelector('.transfer-dialog .transfer-words').textContent") };
@@ -778,6 +785,7 @@ if (
   !phone.landscape.pillsSameRow ||
   !phone.landscape.pillsHugScreen ||
   !(xfer.dialog.open && !xfer.dialog.playing && xfer.dialog.saveChecked && /4 KB/.test(xfer.dialog.saveInfo) && xfer.code.length === 8 && xfer.qr && xfer.removed) ||
+  xfer.typed !== "zx" ||
   !(xfer.words.host.split(" ").length === 3 && xfer.words.host === xfer.words.guest) ||
   !(xfer.offer.choices.includes("add*") && xfer.offer.save === true && /none here yet/.test(xfer.offer.saveLabel)) ||
   !(/Received the ROM and the save/.test(xfer.guestStatus) && /Sent/.test(xfer.hostStatus)) ||

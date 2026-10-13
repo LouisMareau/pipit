@@ -71,6 +71,10 @@ export function keyLabel(code: string): string {
   return code;
 }
 
+/** A field the key would type into: the game must not take it. */
+const isEditable = (target: EventTarget | null) =>
+  target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+
 export class Input {
   private keyboard = 0;
   private touch = 0;
@@ -81,6 +85,8 @@ export class Input {
   private detected: GamepadInfo[] = [];
   private active: number | null = null;
   private enabled = false;
+  /** The keyboard drives the game only while one is shown; the library and its dialogs type normally. */
+  private keyboardActive = false;
   private mapping: ControllerMapping = DEFAULT_MAPPING;
   private keyboardMap = new Map<string, KeyboardAction>();
   private buttonCapture: { resolve: (button: number | null) => void; previous: boolean[] } | null = null;
@@ -109,6 +115,7 @@ export class Input {
         resolve(e.code === "Escape" ? null : e.code);
         return;
       }
+      if (!this.keyboardActive || isEditable(e.target)) return;
       const action = this.keyboardMap.get(e.code);
       if (!action) return;
       e.preventDefault();
@@ -125,6 +132,7 @@ export class Input {
       }
     });
     target.addEventListener("keyup", (e) => {
+      if (!this.keyboardActive || isEditable(e.target)) return;
       const action = this.keyboardMap.get(e.code);
       if (!action) return;
       switch (action) {
@@ -160,6 +168,17 @@ export class Input {
     }
     this.keyboard = 0;
     this.emit();
+  }
+
+  /** Whether a game is shown: only then do the bound keys drive it; leaving releases them. */
+  setKeyboardActive(active: boolean) {
+    if (this.keyboardActive === active) return;
+    this.keyboardActive = active;
+    if (!active) {
+      this.keyboard = 0;
+      this.emit();
+      this.onFastForward(false);
+    }
   }
 
   /** Waits for the next key press (Escape cancels). Game input is suspended meanwhile. */

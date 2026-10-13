@@ -531,6 +531,7 @@ export class App {
     this.setMenuOpen(false);
     this.library.element.classList.add("hidden");
     this.player.classList.remove("hidden");
+    this.input.setKeyboardActive(true);
     this.applyLayout();
     this.screen.fit();
     this.audio.clear();
@@ -567,6 +568,7 @@ export class App {
     this.current = null;
     this.player.classList.add("hidden");
     this.library.element.classList.remove("hidden");
+    this.input.setKeyboardActive(false);
     void this.library.refresh();
   }
 
