@@ -244,8 +244,16 @@ impl Video {
         let read_offset = if display_mode == 2 { 0 } else { (((cap >> 26) & 3) << 15) as usize };
         let source = (cap >> 29) & 3;
         for x in 0..w {
-            // No 3D yet: its pixels are transparent.
-            let a: u16 = if source_a_3d { 0 } else { to_bgr15(self.scratch[0].line[x]) };
+            let a: u16 = if source_a_3d {
+                let p = self.bg0_3d[y * SCREEN_WIDTH + x];
+                if p & OPAQUE != 0 {
+                    to_bgr15(p)
+                } else {
+                    0
+                }
+            } else {
+                to_bgr15(self.scratch[0].line[x])
+            };
             let b: u16 = if source_b_fifo {
                 self.fifo[x]
             } else {

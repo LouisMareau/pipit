@@ -10,6 +10,7 @@ pub mod bios;
 pub mod cart;
 pub mod dma;
 pub mod firmware;
+pub mod gpu3d;
 pub mod ipc;
 pub mod irq;
 pub mod math;

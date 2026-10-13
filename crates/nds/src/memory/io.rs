@@ -11,7 +11,7 @@ impl Bus {
     /// A also has the 3D display control, the capture control and the FIFO.
     fn engine_read(&self, e: usize, reg: u32) -> u16 {
         match reg {
-            0x060 if e == 0 => self.video.disp3dcnt,
+            0x060 if e == 0 => self.gpu3d.read_io16(reg),
             0x064 if e == 0 => self.video.dispcapcnt as u16,
             0x066 if e == 0 => (self.video.dispcapcnt >> 16) as u16,
             _ => self.video.engines[e].read_reg(reg),
@@ -22,9 +22,7 @@ impl Bus {
         let v = u32::from(value & mask);
         let m = u32::from(mask);
         match reg {
-            0x060 if e == 0 => {
-                self.video.disp3dcnt = (self.video.disp3dcnt & !mask) | (value & mask & 0x4FFF)
-            }
+            0x060 if e == 0 => self.gpu3d.write_disp3dcnt(value, mask),
             0x064 if e == 0 => {
                 self.video.dispcapcnt = ((self.video.dispcapcnt & !m) | v) & 0xEF3F_1F1F
             }
@@ -92,6 +90,7 @@ impl Bus {
                 u16::from_le_bytes([self.video.vram.cnt[7], self.video.vram.cnt[8]])
             }
             0x280..=0x2BF if cpu == ARM9 => self.math.read_io(reg),
+            0x320..=0x3BF | 0x600..=0x6A3 if cpu == ARM9 => self.gpu3d.read_io16(reg),
             0x300 => u16::from(self.postflg[cpu]),
             0x304 => {
                 if cpu == ARM9 {
@@ -211,6 +210,11 @@ impl Bus {
                 }
             }
             0x280..=0x2BF if cpu == ARM9 => self.math.write_io(reg, value, mask),
+            0x320..=0x3BF | 0x600..=0x6A3 if cpu == ARM9 => {
+                if self.gpu3d.write_io16(reg, value, mask) {
+                    self.raise(ARM9, Interrupt::GxFifo);
+                }
+            }
             0x300 => {
                 if mask & 0x00FF != 0 {
                     self.postflg[cpu] |= value as u8 & if cpu == ARM9 { 3 } else { 1 };
@@ -237,6 +241,12 @@ impl Bus {
     pub fn io_write32(&mut self, cpu: usize, reg: u32, value: u32) {
         match reg {
             0x068 if cpu == ARM9 => self.video.push_fifo(value),
+            0x400..=0x5FF if cpu == ARM9 => self.gpu3d.write_io32(reg, value),
+            0x600 if cpu == ARM9 => {
+                if self.gpu3d.write_gxstat(value, 0xFFFF_FFFF) {
+                    self.raise(ARM9, Interrupt::GxFifo);
+                }
+            }
             0x188 => {
                 let signals = self.ipc.send(cpu, value);
                 self.apply_ipc(cpu, signals);

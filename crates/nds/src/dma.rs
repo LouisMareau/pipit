@@ -152,7 +152,8 @@ impl Dma {
                     ch.src = ch.sad & 0x0FFF_FFFF;
                     ch.dst = ch.dad & 0x0FFF_FFFF;
                     ch.remaining = self.count_for(&ch);
-                    if self.timing(n, &ch) == Timing::Immediate {
+                    // The geometry FIFO is never full here: its DMA may run at once.
+                    if matches!(self.timing(n, &ch), Timing::Immediate | Timing::GxFifo) {
                         ch.pending = true;
                         self.any_pending = true;
                     }

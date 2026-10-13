@@ -56,7 +56,11 @@ impl Palette<'_> {
 impl Video {
     pub(super) fn render_bgs(&mut self, e: usize, y: usize) {
         let kinds = kinds(self.engines[e].mode());
-        let bg0_is_3d = e == 0 && self.engines[e].dispcnt & (1 << 3) != 0;
+        let bg0_is_3d =
+            e == 0 && (self.engines[e].dispcnt & (1 << 3) != 0 || self.engines[e].mode() == 6);
+        if bg0_is_3d && self.engines[e].bg_enabled(0) {
+            self.bg0_3d_line(y);
+        }
         for (n, kind) in kinds.iter().enumerate() {
             if !self.engines[e].bg_enabled(n) || (n == 0 && bg0_is_3d) {
                 continue;
@@ -68,6 +72,21 @@ impl Video {
                 Some(Kind::Large) => self.large_bg(e, y),
                 None => {}
             }
+        }
+    }
+
+    /// BG0 as the 3D engine's frame, scrolled by BG0HOFS (256 and up scroll the other way).
+    fn bg0_3d_line(&mut self, y: usize) {
+        let hofs = self.engines[0].hofs(0) as i32;
+        let shift = if hofs >= 256 { hofs - 512 } else { hofs };
+        let line = &mut self.scratch[0].bg[0];
+        for (x, px) in line.iter_mut().enumerate() {
+            let sx = x as i32 + shift;
+            *px = if (0..SCREEN_WIDTH as i32).contains(&sx) {
+                self.bg0_3d[y * SCREEN_WIDTH + sx as usize]
+            } else {
+                TRANSPARENT
+            };
         }
     }
 

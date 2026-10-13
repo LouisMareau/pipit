@@ -32,9 +32,13 @@ pub enum Region {
     ObjExtPalA,
     BgExtPalB,
     ObjExtPalB,
+    /// The 3D engine's textures: four 128 KB slots (banks A–D).
+    Texture,
+    /// The 3D engine's texture palettes: six 16 KB slots (banks E, F, G).
+    TexPalette,
 }
 
-const REGION_PAGES: [usize; 10] = [41, 32, 16, 8, 8, 16, 2, 1, 2, 1];
+const REGION_PAGES: [usize; 12] = [41, 32, 16, 8, 8, 16, 2, 1, 2, 1, 32, 8];
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 struct Page {
@@ -66,7 +70,7 @@ pub struct Vram {
     pub i: Box<[u8; 0x4000]>,
     /// VRAMCNT A–I as written.
     pub cnt: [u8; 9],
-    tables: [Vec<Page>; 10],
+    tables: [Vec<Page>; 12],
 }
 
 impl Default for Vram {
@@ -154,6 +158,7 @@ impl Vram {
                     1 => Some((Region::BgA, ofs * 0x20000)),
                     2 if n < 2 => Some((Region::ObjA, (ofs & 1) * 0x20000)),
                     2 => Some((Region::Arm7, (ofs & 1) * 0x20000)),
+                    3 => Some((Region::Texture, ofs * 0x20000)),
                     4 if n == 2 => Some((Region::BgB, 0)),
                     4 if n == 3 => Some((Region::ObjB, 0)),
                     _ => None,
@@ -162,6 +167,7 @@ impl Vram {
                     0 => Some((Region::Lcdc, 0x80000)),
                     1 => Some((Region::BgA, 0)),
                     2 => Some((Region::ObjA, 0)),
+                    3 => Some((Region::TexPalette, 0)),
                     4 => Some((Region::BgExtPalA, 0)),
                     _ => None,
                 },
@@ -171,6 +177,7 @@ impl Vram {
                         0 => Some((Region::Lcdc, 0x90000 + (n - 5) * 0x4000)),
                         1 => Some((Region::BgA, small)),
                         2 => Some((Region::ObjA, small)),
+                        3 => Some((Region::TexPalette, small)),
                         4 => Some((Region::BgExtPalA, (ofs & 1) * 0x4000)),
                         5 => Some((Region::ObjExtPalA, 0)),
                         _ => None,

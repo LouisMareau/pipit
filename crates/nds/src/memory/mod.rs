@@ -15,6 +15,7 @@ pub use arm9::{Cp15, View9};
 use crate::bios::{self, BIOS7_SIZE, BIOS9_SIZE};
 use crate::cart::Cart;
 use crate::dma::{Dma, Timing};
+use crate::gpu3d::Gpu3d;
 use crate::ipc::{self, Ipc};
 use crate::irq::{Interrupt, Irq};
 use crate::math::Math;
@@ -82,6 +83,7 @@ pub struct Bus {
     /// An IntrWait is in progress on this CPU (see `bios::swi`).
     pub intr_wait_continuing: [bool; 2],
     pub video: Video,
+    pub gpu3d: Gpu3d,
     pub cart: Cart,
     pub ipc: Ipc,
     pub irq: [Irq; 2],
@@ -128,6 +130,7 @@ impl Bus {
             hle: [bios9.is_none(), bios7.is_none()],
             intr_wait_continuing: [false; 2],
             video: Video::new(),
+            gpu3d: Gpu3d::new(),
             cart: Cart::new(rom),
             ipc: Ipc::new(),
             irq: [Irq::new(), Irq::new()],
@@ -243,6 +246,11 @@ impl Bus {
         if signals.vblank_started {
             self.dma[ARM9].trigger(Timing::VBlank);
             self.dma[ARM7].trigger(Timing::VBlank);
+            // A pending buffer swap happens now; the scene is rendered for the next frame.
+            if self.gpu3d.on_vblank(&self.video.vram, &mut self.video.bg0_3d[..]) {
+                self.raise(ARM9, Interrupt::GxFifo);
+            }
+            self.dma[ARM9].trigger(Timing::GxFifo);
         }
         if signals.hblank_started && visible {
             self.dma[ARM9].trigger(Timing::HBlank);

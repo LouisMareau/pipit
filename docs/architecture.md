@@ -105,6 +105,7 @@ state. The ARM9 is an `Arch::V5TE` core, the ARM7 an `Arch::V4T` one, both from
 | `spi.rs`, `firmware.rs` | SPI bus | The power management chip, the firmware flash (a default image when the user has none) and the touch screen controller; transfers complete at once, the hold bit keeps a chip selected across bytes |
 | `rtc.rs` | Real-time clock | The bit-banged S-35180 protocol, status and alarm registers, a once-a-second event for its interrupt; time runs on emulated cycles from a Unix time the front-end sets |
 | `backup.rs` | Card saves | The save chip behind AUXSPI: EEPROM (4 Kbit to 512 Kbit) or Flash, told apart by the first write's address bytes or a save file's size; infrared cards' pass-through |
+| `gpu3d/` | 3D engine | `geometry.rs`: the command set, matrices, lighting, clipping, polygon assembly; `render.rs`: the scanline rasterizer with depth, texturing (`texture.rs`), shading modes, blending, shadows, edge marking and fog; the frame goes to engine A's BG0 at the swap |
 | `math.rs` | Divider, square root | The ARM9's 280h–2BFh block; results are immediate |
 | `dma.rs`, `timers.rs`, `irq.rs` | Per CPU | The ARM9's eight DMA timings and 21-bit counts, the ARM7's four and 16-bit; 32-bit IE/IF |
 | `bios/` | BIOS | Replacement images with only the exception vectors and interrupt dispatchers; every SWI in `bios/swi.rs`; optional real BIOS images |

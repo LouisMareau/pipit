@@ -198,8 +198,9 @@ pub struct Video {
     pub oam: Box<[u8; 0x800]>,
     /// DISPCAPCNT (064h): engine A's display capture.
     pub dispcapcnt: u32,
-    /// DISP3DCNT (060h), kept for the 3D engine.
-    pub disp3dcnt: u16,
+    /// The 3D engine's frame as engine A shows it on BG0 (the 2D pixel format).
+    #[serde(with = "pipit_common::snapshot::words_box")]
+    pub bg0_3d: Box<[u32; SCREEN_WIDTH * SCREEN_HEIGHT]>,
     /// DISP_MMEM_FIFO (068h): the line DMA pushes from main memory.
     #[serde(skip, default = "blank_fifo")]
     fifo: Box<[u16; SCREEN_WIDTH]>,
@@ -249,7 +250,7 @@ impl Video {
             palette: crate::boxed(0),
             oam: crate::boxed(0),
             dispcapcnt: 0,
-            disp3dcnt: 0,
+            bg0_3d: crate::boxed(0),
             fifo: blank_fifo(),
             fifo_pos: 0,
             screens: blank_screens(),
