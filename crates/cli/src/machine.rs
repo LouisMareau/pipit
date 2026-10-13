@@ -35,18 +35,22 @@ impl Machine {
         match self {
             Machine::Gba(g) => Self::describe_gba(g),
             Machine::Gbc(g) => Self::describe_gbc(g),
-            Machine::Nds(n) => format!(
-                "{} [{}] ARM9 {:X}h bytes at {:08X} (entry {:08X}), ARM7 {:X}h bytes at {:08X} (entry {:08X})",
-                n.title(),
-                n.game_code(),
-                n.bus.cart.arm9.size,
-                n.bus.cart.arm9.ram_address,
-                n.bus.cart.arm9.entry,
-                n.bus.cart.arm7.size,
-                n.bus.cart.arm7.ram_address,
-                n.bus.cart.arm7.entry,
-            ),
+            Machine::Nds(n) => Self::describe_nds(n),
         }
+    }
+
+    fn describe_nds(n: &Nds) -> String {
+        format!(
+            "{} [{}] ARM9 {:X}h bytes at {:08X} (entry {:08X}), ARM7 {:X}h bytes at {:08X} (entry {:08X})",
+            n.title(),
+            n.game_code(),
+            n.bus.cart.arm9.size,
+            n.bus.cart.arm9.ram_address,
+            n.bus.cart.arm9.entry,
+            n.bus.cart.arm7.size,
+            n.bus.cart.arm7.ram_address,
+            n.bus.cart.arm7.entry,
+        )
     }
 
     fn describe_gba(g: &Gba) -> String {
@@ -292,6 +296,7 @@ pub fn is_ds(path: &Path) -> bool {
 pub enum AnyLink {
     Gba(pipit_gba::Link),
     Gbc(pipit_gbc::Link),
+    Nds(pipit_nds::Link),
 }
 
 impl AnyLink {
@@ -302,16 +307,22 @@ impl AnyLink {
         bios: Option<Vec<u8>>,
         wireless: bool,
     ) -> anyhow::Result<Self> {
-        let game_boy = paths.iter().map(|p| is_game_boy(p)).collect::<Vec<_>>();
-        anyhow::ensure!(
-            game_boy.iter().all(|&g| g == game_boy[0]),
-            "mixed Game Boy and Game Boy Advance ROMs"
-        );
-        if game_boy[0] {
+        let kinds = paths.iter().map(|p| (is_game_boy(p), is_ds(p))).collect::<Vec<_>>();
+        anyhow::ensure!(kinds.iter().all(|&k| k == kinds[0]), "mixed kinds of console");
+        if kinds[0].1 {
+            anyhow::ensure!(!wireless, "DS consoles are wireless already");
+            anyhow::ensure!(
+                roms.len() <= pipit_nds::link::MAX_NODES,
+                "at most sixteen DS consoles"
+            );
+            let nodes = roms.into_iter().map(|rom| Nds::new(rom, None, None, None)).collect();
+            Ok(AnyLink::Nds(pipit_nds::Link::new(nodes)))
+        } else if kinds[0].0 {
             anyhow::ensure!(roms.len() == 2, "a Game Boy link cable joins exactly two consoles");
             anyhow::ensure!(!wireless, "Game Boy games have no Wireless Adapter");
             Ok(AnyLink::Gbc(pipit_gbc::Link::new(roms.into_iter().map(Gbc::new).collect())))
         } else {
+            anyhow::ensure!(roms.len() <= 4, "a link cable joins at most four consoles");
             let nodes = roms.into_iter().map(|rom| Gba::new(rom, bios.clone())).collect();
             Ok(AnyLink::Gba(if wireless {
                 pipit_gba::Link::wireless(nodes)
@@ -326,19 +337,29 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => link.nodes_mut()[player].bus.load8(addr),
             AnyLink::Gbc(link) => link.nodes_mut()[player].bus.peek(addr as u16),
+            AnyLink::Nds(link) => {
+                let n = &mut link.nodes_mut()[player];
+                let time = n.bus.time;
+                let value = n.bus.read9_8(addr, true);
+                n.bus.time = time;
+                value
+            }
         }
     }
 
-    /// Records Wireless Adapter traffic (GBA links only).
+    /// Records Wireless Adapter traffic (GBA) or the frames on the air (DS).
     pub fn set_trace_rfu(&mut self, on: bool) {
-        if let AnyLink::Gba(link) = self {
-            link.set_trace(on);
+        match self {
+            AnyLink::Gba(link) => link.set_trace(on),
+            AnyLink::Nds(link) => link.set_trace(on),
+            AnyLink::Gbc(_) => {}
         }
     }
 
     pub fn take_rfu_log(&mut self) -> Vec<String> {
         match self {
             AnyLink::Gba(link) => link.take_log(),
+            AnyLink::Nds(link) => link.take_log(),
             AnyLink::Gbc(_) => Vec::new(),
         }
     }
@@ -347,6 +368,7 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => link.nodes().len(),
             AnyLink::Gbc(link) => link.nodes().len(),
+            AnyLink::Nds(link) => link.nodes().len(),
         }
     }
 
@@ -354,6 +376,7 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => Machine::describe_gba(&link.nodes()[player]),
             AnyLink::Gbc(link) => Machine::describe_gbc(&link.nodes()[player]),
+            AnyLink::Nds(link) => Machine::describe_nds(&link.nodes()[player]),
         }
     }
 
@@ -361,6 +384,7 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => link.run_frame(),
             AnyLink::Gbc(link) => link.run_frame(),
+            AnyLink::Nds(link) => link.run_frame(),
         }
     }
 
@@ -368,6 +392,7 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => link.nodes_mut()[player].set_keys(keys),
             AnyLink::Gbc(link) => link.nodes_mut()[player].set_keys(keys.0 as u8),
+            AnyLink::Nds(link) => link.nodes_mut()[player].set_keys(pipit_nds::Keys(keys.0)),
         }
     }
 
@@ -375,6 +400,7 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => link.nodes()[player].framebuffer(),
             AnyLink::Gbc(link) => link.nodes()[player].framebuffer(),
+            AnyLink::Nds(link) => link.nodes()[player].framebuffer(),
         }
     }
 
@@ -382,6 +408,9 @@ impl AnyLink {
         match self {
             AnyLink::Gba(_) => (pipit_gba::SCREEN_WIDTH as u32, pipit_gba::SCREEN_HEIGHT as u32),
             AnyLink::Gbc(_) => (pipit_gbc::SCREEN_WIDTH as u32, pipit_gbc::SCREEN_HEIGHT as u32),
+            AnyLink::Nds(_) => {
+                (pipit_nds::SCREEN_WIDTH as u32, pipit_nds::SCREEN_HEIGHT as u32 * 2)
+            }
         }
     }
 
@@ -389,6 +418,7 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => link.nodes_mut()[player].load_save_data(data),
             AnyLink::Gbc(link) => link.nodes_mut()[player].load_save_data(data),
+            AnyLink::Nds(link) => link.nodes_mut()[player].load_save_data(data),
         }
     }
 
@@ -396,6 +426,7 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => link.nodes()[player].save_data().map(<[u8]>::to_vec),
             AnyLink::Gbc(link) => link.nodes()[player].save_data(),
+            AnyLink::Nds(link) => link.nodes()[player].save_data().map(<[u8]>::to_vec),
         }
     }
 
@@ -403,6 +434,7 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => link.transfers(),
             AnyLink::Gbc(link) => link.transfers(),
+            AnyLink::Nds(link) => link.frames(),
         }
     }
 
@@ -410,6 +442,7 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => link.save_state(),
             AnyLink::Gbc(link) => link.save_state(),
+            AnyLink::Nds(link) => link.save_state(),
         }
     }
 
@@ -417,6 +450,7 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => link.load_state(data),
             AnyLink::Gbc(link) => link.load_state(data),
+            AnyLink::Nds(link) => link.load_state(data),
         }
         .map_err(|e| anyhow::anyhow!("{e}"))
     }
@@ -426,6 +460,7 @@ impl AnyLink {
         match self {
             AnyLink::Gba(link) => link.state_hash(),
             AnyLink::Gbc(link) => link.state_hash(),
+            AnyLink::Nds(link) => link.state_hash(),
         }
     }
 
@@ -436,6 +471,7 @@ impl AnyLink {
             AnyLink::Gbc(link) => {
                 link.take_transfers().into_iter().map(|b| b.map(u16::from).to_vec()).collect()
             }
+            AnyLink::Nds(_) => Vec::new(),
         }
     }
 }

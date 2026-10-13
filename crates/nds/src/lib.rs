@@ -3,7 +3,8 @@
 //! Being built up stage by stage (see docs/roadmap.md). So far: both CPUs with
 //! their memory maps, the interrupt controllers, timers, DMA, IPC, the card
 //! interface, the divider, the two 2D engines' timing and text backgrounds,
-//! and a BIOS replacement that boots a ROM directly from its header.
+//! and a BIOS replacement that boots a ROM directly from its header; the
+//! wireless hardware, for consoles playing together (see [`link`]).
 
 pub mod backup;
 pub mod bios;
@@ -13,6 +14,7 @@ pub mod firmware;
 pub mod gpu3d;
 pub mod ipc;
 pub mod irq;
+pub mod link;
 pub mod math;
 pub mod memory;
 pub mod rtc;
@@ -21,7 +23,9 @@ pub mod sound;
 pub mod spi;
 pub mod timers;
 pub mod video;
+pub mod wifi;
 
+pub use link::Link;
 pub use memory::Keys;
 pub use pipit_common::snapshot::StateError;
 pub use video::{SCREEN_HEIGHT, SCREEN_WIDTH};
@@ -167,6 +171,19 @@ impl Nds {
         }
     }
 
+    /// Runs until the clock reaches `target`: whether a frame completed on the way.
+    pub(crate) fn run_until(&mut self, target: u64) -> bool {
+        let mut ready = false;
+        while self.bus.scheduler.now() < target {
+            self.run_slice();
+            if self.bus.video.take_frame_ready() {
+                self.compose();
+                ready = true;
+            }
+        }
+        ready
+    }
+
     /// Each CPU runs to the end of the slice (or its next event), then the
     /// events that came due run.
     fn run_slice(&mut self) {
@@ -238,7 +255,7 @@ impl Nds {
         bus.run_events();
     }
 
-    fn compose(&mut self) {
+    pub(crate) fn compose(&mut self) {
         let n = SCREEN_WIDTH * SCREEN_HEIGHT;
         self.frame[..n].copy_from_slice(&self.bus.video.screens[0][..]);
         self.frame[n..].copy_from_slice(&self.bus.video.screens[1][..]);

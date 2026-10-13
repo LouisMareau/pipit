@@ -35,6 +35,7 @@ impl Bus {
                 let reg = addr & 0x00FF_FFFF;
                 (self.io_read16(ARM7, reg & !1) >> ((reg & 1) * 8)) as u8
             }
+            0x04 => self.wifi.read8((addr & 0x7FFF) as usize, self.time[ARM7]),
             0x06 => self.video.vram.read8(Region::Arm7, (addr & 0x3_FFFF) as usize),
             0x08..=0x0A => 0xFF,
             _ => 0,
@@ -58,6 +59,7 @@ impl Bus {
                 (false, i) => u16::from_le_bytes([self.arm7_wram[i], self.arm7_wram[i + 1]]),
             },
             0x04 if addr & 0x0080_0000 == 0 => self.io_read16(ARM7, addr & 0x00FF_FFFF),
+            0x04 => self.wifi.read16((addr & 0x7FFF) as usize, self.time[ARM7]),
             0x06 => self.video.vram.read16(Region::Arm7, (addr & 0x3_FFFF) as usize),
             0x08..=0x0A => 0xFFFF,
             _ => 0,
@@ -81,6 +83,11 @@ impl Bus {
                 (false, i) => u32::from_le_bytes(self.arm7_wram[i..i + 4].try_into().unwrap()),
             },
             0x04 if addr & 0x0080_0000 == 0 => self.io_read32(ARM7, addr & 0x00FF_FFFF),
+            0x04 => {
+                let (off, now) = ((addr & 0x7FFF) as usize, self.time[ARM7]);
+                u32::from(self.wifi.read16(off, now))
+                    | u32::from(self.wifi.read16(off + 2, now)) << 16
+            }
             0x06 => self.video.vram.read32(Region::Arm7, (addr & 0x3_FFFF) as usize),
             0x08..=0x0A => 0xFFFF_FFFF,
             _ => 0,
@@ -99,6 +106,11 @@ impl Bus {
                 let reg = addr & 0x00FF_FFFF;
                 let shift = (reg & 1) * 8;
                 self.io_write16(ARM7, reg & !1, u16::from(value) << shift, 0xFF << shift);
+            }
+            0x04 => {
+                let now = self.time[ARM7];
+                self.wifi.write8((addr & 0x7FFF) as usize, value, now, &mut self.scheduler);
+                self.wifi_irq();
             }
             _ => {}
         }
@@ -119,6 +131,11 @@ impl Bus {
             0x04 if addr & 0x0080_0000 == 0 => {
                 self.io_write16(ARM7, addr & 0x00FF_FFFF, value, 0xFFFF)
             }
+            0x04 => {
+                let now = self.time[ARM7];
+                self.wifi.write16((addr & 0x7FFF) as usize, value, now, &mut self.scheduler);
+                self.wifi_irq();
+            }
             0x06 => self.video.vram.write16(Region::Arm7, (addr & 0x3_FFFF) as usize, value),
             _ => {}
         }
@@ -137,6 +154,12 @@ impl Bus {
                 (false, i) => self.arm7_wram[i..i + 4].copy_from_slice(&value.to_le_bytes()),
             },
             0x04 if addr & 0x0080_0000 == 0 => self.io_write32(ARM7, addr & 0x00FF_FFFF, value),
+            0x04 => {
+                let (off, now) = ((addr & 0x7FFF) as usize, self.time[ARM7]);
+                self.wifi.write16(off, value as u16, now, &mut self.scheduler);
+                self.wifi.write16(off + 2, (value >> 16) as u16, now, &mut self.scheduler);
+                self.wifi_irq();
+            }
             0x06 => self.video.vram.write32(Region::Arm7, (addr & 0x3_FFFF) as usize, value),
             _ => {}
         }

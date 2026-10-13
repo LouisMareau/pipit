@@ -92,3 +92,22 @@ pub fn user_settings_of(image: &[u8]) -> [u8; 0x74] {
         (None, None) => default_user_settings(),
     }
 }
+
+/// The wireless hardware's MAC address, as the image stores it.
+pub fn mac_of(image: &[u8]) -> [u8; 6] {
+    image
+        .get(0x36..0x3C)
+        .and_then(|m| m.try_into().ok())
+        .unwrap_or([0x02, 0x50, 0x49, 0x50, 0x49, 0x54])
+}
+
+/// Gives the image another MAC address (consoles within range of each other
+/// must differ), keeping the wireless settings' CRC right.
+pub fn set_mac(image: &mut [u8], mac: [u8; 6]) {
+    if image.len() < 0x2E + 0x138 {
+        return;
+    }
+    image[0x36..0x3C].copy_from_slice(&mac);
+    let crc = crc16(0, &image[0x2E..0x2E + 0x138]);
+    image[0x2C..0x2E].copy_from_slice(&crc.to_le_bytes());
+}

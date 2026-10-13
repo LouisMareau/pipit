@@ -1,8 +1,9 @@
 //! WebAssembly bindings. The web app talks to `Emulator` from a Web Worker.
 //!
-//! An `Emulator` is one or more consoles of one kind on a link cable (made with
+//! An `Emulator` is one or more consoles of one kind playing together (made with
 //! `linked`; every console is emulated here and `local` is the one this player
-//! sees and controls): Game Boy Advances, or Game Boys. Frames are exposed as a
+//! sees and controls): Game Boy Advances or Game Boys on a cable, or DSs within
+//! wireless range of each other. Frames are exposed as a
 //! pointer into WASM memory (RGBA bytes, ready for an `ImageData`) so the
 //! worker can copy them out without an intermediate `Vec`.
 
@@ -14,14 +15,16 @@ use wasm_bindgen::prelude::*;
 /// `system` values the front-end passes: 0 is a Game Boy Advance.
 const SYSTEM_GBC: u8 = 1;
 const SYSTEM_NDS: u8 = 2;
+/// Bits of a DS's input number that carry the pen (see `set_player_keys`).
+const PEN_INCLUDED: u32 = 1 << 30;
+const PEN_DOWN: u32 = 1 << 28;
 
 /// One long-lived object either way: the size difference does not matter.
 #[allow(clippy::large_enum_variant)]
 enum Core {
     Gba(pipit_gba::Link),
     Gbc(pipit_gbc::Link),
-    /// One DS: playing together is not available for DS games yet.
-    Nds(Box<Nds>),
+    Nds(pipit_nds::Link),
 }
 
 /// A console's picture (the last console's, for a player index past the end).
@@ -29,7 +32,7 @@ fn framebuffer(core: &Core, player: usize) -> &[u32] {
     match core {
         Core::Gba(link) => link.nodes()[player.min(link.nodes().len() - 1)].framebuffer(),
         Core::Gbc(link) => link.nodes()[player.min(link.nodes().len() - 1)].framebuffer(),
-        Core::Nds(nds) => nds.framebuffer(),
+        Core::Nds(link) => link.nodes()[player.min(link.nodes().len() - 1)].framebuffer(),
     }
 }
 
@@ -83,8 +86,9 @@ impl Emulator {
     ) -> Emulator {
         let (core, width, height) = if system == SYSTEM_NDS {
             // Both screens, the top one above the bottom one.
-            let nds = Nds::new(rom.to_vec(), None, None, None);
-            (Core::Nds(Box::new(nds)), pipit_nds::SCREEN_WIDTH, pipit_nds::SCREEN_HEIGHT * 2)
+            let nodes = (0..players).map(|_| Nds::new(rom.to_vec(), None, None, None)).collect();
+            let link = pipit_nds::Link::new(nodes);
+            (Core::Nds(link), pipit_nds::SCREEN_WIDTH, pipit_nds::SCREEN_HEIGHT * 2)
         } else if system == SYSTEM_GBC {
             let nodes = (0..players.min(2)).map(|_| Gbc::new(rom.to_vec())).collect();
             (
@@ -118,7 +122,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(link) => link.nodes().len(),
             Core::Gbc(link) => link.nodes().len(),
-            Core::Nds(_) => 1,
+            Core::Nds(link) => link.nodes().len(),
         }
     }
 
@@ -150,7 +154,8 @@ impl Emulator {
             Core::Gba(link) if link.nodes().len() == 1 => link.nodes_mut()[0].run_frame(),
             Core::Gba(link) => link.run_frame(),
             Core::Gbc(link) => link.run_frame(),
-            Core::Nds(nds) => nds.run_frame(),
+            Core::Nds(link) if link.nodes().len() == 1 => link.nodes_mut()[0].run_frame(),
+            Core::Nds(link) => link.run_frame(),
         }
     }
 
@@ -202,26 +207,36 @@ impl Emulator {
     }
 
     /// Sets the keys held on this player's console (bit layout of `Keys`).
-    pub fn set_keys(&mut self, keys: u16) {
+    pub fn set_keys(&mut self, keys: u32) {
         self.set_player_keys(self.local, keys);
     }
 
-    /// Sets the keys held on any console of the link.
-    pub fn set_player_keys(&mut self, player: usize, keys: u16) {
+    /// Sets the keys held on any console of the link. For a DS the value may
+    /// carry the pen too, as the web app packs it for play over a network:
+    /// bit 30 says it does, bit 28 that the pen is down, bits 12–19 and 20–27
+    /// where it is (x, y).
+    pub fn set_player_keys(&mut self, player: usize, keys: u32) {
         match &mut self.core {
-            Core::Gba(link) => link.nodes_mut()[player].set_keys(Keys(keys & 0x3FF)),
+            Core::Gba(link) => link.nodes_mut()[player].set_keys(Keys(keys as u16 & 0x3FF)),
             // The Game Boy's eight keys are the Advance's low byte.
             Core::Gbc(link) => link.nodes_mut()[player].set_keys(keys as u8),
-            Core::Nds(nds) => nds.set_keys(pipit_nds::Keys(keys)),
+            Core::Nds(link) => {
+                let node = &mut link.nodes_mut()[player];
+                node.set_keys(pipit_nds::Keys(keys as u16 & 0xFFF));
+                if keys & PEN_INCLUDED != 0 {
+                    let down = keys & PEN_DOWN != 0;
+                    node.set_touch(down.then_some(((keys >> 12) as u8, (keys >> 20) as u8)));
+                }
+            }
         }
     }
 
-    /// The pen on the DS's bottom screen (x 0–255, y 0–191); a negative
-    /// coordinate lifts it.
+    /// The pen on this player's DS's bottom screen (x 0–255, y 0–191); a
+    /// negative coordinate lifts it.
     pub fn set_touch(&mut self, x: i32, y: i32) {
-        if let Core::Nds(nds) = &mut self.core {
+        if let Core::Nds(link) = &mut self.core {
             let touch = (x >= 0 && y >= 0).then(|| (x.min(255) as u8, y.min(191) as u8));
-            nds.set_touch(touch);
+            link.nodes_mut()[self.local].set_touch(touch);
         }
     }
 
@@ -247,7 +262,14 @@ impl Emulator {
                     }
                 }
             }
-            Core::Nds(nds) => out = nds.drain_audio(),
+            Core::Nds(link) => {
+                for (i, node) in link.nodes_mut().iter_mut().enumerate() {
+                    let samples = node.drain_audio();
+                    if i == view {
+                        out = samples;
+                    }
+                }
+            }
         }
         out
     }
@@ -269,9 +291,9 @@ impl Emulator {
             Core::Gbc(link) => link.nodes_mut().iter_mut().for_each(|node| {
                 node.drain_audio();
             }),
-            Core::Nds(nds) => {
-                nds.drain_audio();
-            }
+            Core::Nds(link) => link.nodes_mut().iter_mut().for_each(|node| {
+                node.drain_audio();
+            }),
         }
     }
 
@@ -280,7 +302,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(link) => link.save_state(),
             Core::Gbc(link) => link.save_state(),
-            Core::Nds(nds) => nds.save_state(),
+            Core::Nds(link) => link.save_state(),
         }
     }
 
@@ -288,7 +310,7 @@ impl Emulator {
         match &mut self.core {
             Core::Gba(link) => link.load_state(data),
             Core::Gbc(link) => link.load_state(data),
-            Core::Nds(nds) => nds.load_state(data),
+            Core::Nds(link) => link.load_state(data),
         }
         .map_err(|e| JsError::new(&e.to_string()))
     }
@@ -297,7 +319,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(link) => link.nodes()[self.local].save_data().map(<[u8]>::to_vec),
             Core::Gbc(link) => link.nodes()[self.local].save_data(),
-            Core::Nds(nds) => nds.save_data().map(<[u8]>::to_vec),
+            Core::Nds(link) => link.nodes()[self.local].save_data().map(<[u8]>::to_vec),
         }
     }
 
@@ -310,7 +332,7 @@ impl Emulator {
         match &mut self.core {
             Core::Gba(link) => link.nodes_mut()[player].load_save_data(data),
             Core::Gbc(link) => link.nodes_mut()[player].load_save_data(data),
-            Core::Nds(nds) => nds.load_save_data(data),
+            Core::Nds(link) => link.nodes_mut()[player].load_save_data(data),
         }
     }
 
@@ -318,7 +340,7 @@ impl Emulator {
         match &mut self.core {
             Core::Gba(link) => link.nodes_mut()[self.local].take_save_dirty(),
             Core::Gbc(link) => link.nodes_mut()[self.local].take_save_dirty(),
-            Core::Nds(nds) => nds.take_save_dirty(),
+            Core::Nds(link) => link.nodes_mut()[self.local].take_save_dirty(),
         }
     }
 
@@ -327,7 +349,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(link) => link.nodes()[self.local].save_state(),
             Core::Gbc(link) => link.nodes()[self.local].save_state(),
-            Core::Nds(nds) => nds.save_state(),
+            Core::Nds(link) => link.nodes()[self.local].save_state(),
         }
     }
 
@@ -336,18 +358,19 @@ impl Emulator {
         match &mut self.core {
             Core::Gba(link) => link.nodes_mut()[self.local].load_state(data),
             Core::Gbc(link) => link.nodes_mut()[self.local].load_state(data),
-            Core::Nds(nds) => nds.load_state(data),
+            Core::Nds(link) => link.nodes_mut()[self.local].load_state(data),
         }
         .map_err(|e| JsError::new(&e.to_string()))
     }
 
-    /// How much the in-game link has done since the start: cable transfers, or
-    /// "data ready" wake-ups from the adapters. Flat while a game's link is stuck.
+    /// How much the in-game link has done since the start: cable transfers,
+    /// "data ready" wake-ups from the adapters, or wireless frames. Flat while a
+    /// game's link is stuck.
     pub fn link_activity(&self) -> u32 {
         match &self.core {
             Core::Gba(link) => (link.transfers() + link.wakes()) as u32,
             Core::Gbc(link) => link.transfers() as u32,
-            Core::Nds(_) => 0,
+            Core::Nds(link) => link.frames() as u32,
         }
     }
 
@@ -356,7 +379,7 @@ impl Emulator {
         let h = match &self.core {
             Core::Gba(link) => link.state_hash(),
             Core::Gbc(link) => link.state_hash(),
-            Core::Nds(nds) => nds.state_hash(),
+            Core::Nds(link) => link.state_hash(),
         };
         (h as u32) ^ ((h >> 32) as u32)
     }
@@ -370,7 +393,9 @@ impl Emulator {
             Core::Gbc(link) => {
                 link.nodes_mut().iter_mut().for_each(|node| node.set_time(unix_seconds as i64))
             }
-            Core::Nds(nds) => nds.set_time(unix_seconds as i64),
+            Core::Nds(link) => {
+                link.nodes_mut().iter_mut().for_each(|node| node.set_time(unix_seconds as i64))
+            }
         }
     }
 
@@ -378,7 +403,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(link) => link.nodes()[self.local].title(),
             Core::Gbc(link) => link.nodes()[self.local].title(),
-            Core::Nds(nds) => nds.title().to_string(),
+            Core::Nds(link) => link.nodes()[self.local].title().to_string(),
         }
     }
 
@@ -388,7 +413,7 @@ impl Emulator {
             Core::Gbc(link) => {
                 if link.nodes()[self.local].is_color() { "GBC" } else { "GB" }.to_string()
             }
-            Core::Nds(nds) => nds.game_code().to_string(),
+            Core::Nds(link) => link.nodes()[self.local].game_code().to_string(),
         }
     }
 }

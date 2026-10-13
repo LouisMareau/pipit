@@ -85,7 +85,8 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       if (!linked) emulator?.set_keys(keys);
       break;
     case "touch":
-      emulator?.set_touch(msg.x, msg.y);
+      // On a link the pen travels with the keys (see `PEN_INCLUDED`): only alone.
+      if (!linked) emulator?.set_touch(msg.x, msg.y);
       break;
     case "fastForward":
       if (linked) break;

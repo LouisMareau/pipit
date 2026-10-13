@@ -11,7 +11,7 @@ import { connect, generateCode, hashRom, LinkSession, listen } from "../platform
 import { FramePacer } from "../platform/pacer";
 import * as storage from "../platform/storage";
 import type { ControllerMapping, ResolvedTouchLayout, RomEntry, Settings, TouchLayout } from "../types";
-import { DEFAULT_CONNECTION, DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key, STATE_SLOTS } from "../types";
+import { DEFAULT_CONNECTION, DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key, PEN_DOWN, PEN_INCLUDED, STATE_SLOTS } from "../types";
 import { ConfirmDialog } from "./confirm-dialog";
 import { ControllerSettings } from "./controller-settings";
 import { ControllerToggle } from "./controller-toggle";
@@ -92,6 +92,8 @@ export class App {
   private pendingLink: { cancel(): void } | null = null;
   /** Keys the player holds now; on a link they reach the game a few frames later. */
   private heldKeys = 0;
+  /** The pen on a DS's bottom screen, while it is down. */
+  private pen: { x: number; y: number } | null = null;
   private stalledTicks = 0;
   /** Test hooks (see scripts/): scripted keys on a link, and a copy of the save. */
   private hooks: TestHooks = { keyScript: null, save: () => this.copyOfSave(), linkLog: () => linkLogText() };
@@ -457,7 +459,7 @@ export class App {
     // Scripted keys (a test hook) are given per game frame; otherwise whatever
     // is held now goes out for every frame published.
     const script = this.keyScript;
-    const tick = this.session.tick(script ? (frame) => script.at(frame) : () => this.heldKeys);
+    const tick = this.session.tick(script ? (frame) => script.at(frame) : () => this.frameKeys());
     if (tick) {
       this.stalledTicks = 0;
       this.emulator.requestFrame(tick.keys, tick.frame, tick.guessed);
@@ -506,12 +508,22 @@ export class App {
 
   private openLinkDialog() {
     if (!this.current || this.session) return;
-    if (this.current.system === "nds") {
-      this.toast("Playing together is not available for DS games yet");
-      return;
-    }
     this.pauseForDialog(true);
-    this.linkDialog.open(this.settings.connection, this.current.system !== "gbc");
+    // Only the Advance has a choice of cable or adapters: DSs are wireless.
+    this.linkDialog.open(this.settings.connection, this.current.system === "gba");
+  }
+
+  /** The keys held now; on a DS, with the pen packed in (see `PEN_INCLUDED`). */
+  private frameKeys(): number {
+    if (this.current?.system !== "nds") return this.heldKeys;
+    const pen = this.pen;
+    return this.heldKeys | PEN_INCLUDED | (pen ? PEN_DOWN | (pen.x << 12) | (pen.y << 20) : 0);
+  }
+
+  /** Moves the pen (or lifts it, with a negative coordinate): now when playing alone, with the next frame's keys on a link. */
+  private setPen(x: number, y: number) {
+    this.pen = x < 0 || y < 0 ? null : { x, y };
+    this.emulator.setTouch(x, y);
   }
 
   private async startSession(role: Role, code: string) {
@@ -610,6 +622,7 @@ export class App {
   private lastRate = "?";
 
   private linkName(): string {
+    if (this.current?.system === "nds") return "Local wireless";
     return this.sessionWireless ? "Wireless Adapters" : "Link cable";
   }
 
@@ -790,13 +803,13 @@ export class App {
       const rect = canvas.getBoundingClientRect();
       const x = Math.floor(((e.clientX - rect.left) / rect.width) * canvas.width);
       const y = Math.floor(((e.clientY - rect.top) / rect.height) * canvas.height) - canvas.height / 2;
-      if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height / 2) this.emulator.setTouch(-1, -1);
-      else this.emulator.setTouch(x, y);
+      if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height / 2) this.setPen(-1, -1);
+      else this.setPen(x, y);
     };
     const lift = (e: PointerEvent) => {
       if (e.pointerId !== penPointer) return;
       penPointer = null;
-      this.emulator.setTouch(-1, -1);
+      this.setPen(-1, -1);
     };
     canvas.addEventListener("pointerdown", (e) => {
       if (this.current?.system !== "nds" || penPointer !== null) return;

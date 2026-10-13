@@ -35,6 +35,8 @@ pub enum Event {
     AudioSample,
     /// The real-time clock's second ticks.
     RtcSecond,
+    /// The wireless hardware's microsecond counter reached a mark.
+    WifiTimer,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

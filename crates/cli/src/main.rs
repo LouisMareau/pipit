@@ -252,7 +252,7 @@ fn main() -> Result<()> {
             bios,
         } => {
             let roms = if rom.len() == 1 { vec![rom[0].clone(); players] } else { rom };
-            anyhow::ensure!((2..=4).contains(&roms.len()), "a link joins two to four consoles");
+            anyhow::ensure!(roms.len() >= 2, "a link joins at least two consoles");
             let bios_data = bios.map(fs::read).transpose().context("reading BIOS")?;
             let mut data = Vec::new();
             for path in &roms {

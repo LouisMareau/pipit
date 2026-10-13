@@ -557,8 +557,8 @@ if (ndsRomArg) {
   const listed = await evaluate("document.querySelectorAll('.rom-list[data-system=nds] .rom-main').length");
   await evaluate("document.querySelector('.rom-list[data-system=nds] .rom-main').click(); true");
   await sleep(8000);
-  const bottomInk = () =>
-    evaluate(`(() => {
+  const bottomInk = (page = { evaluate }) =>
+    page.evaluate(`(() => {
       const canvas = document.querySelector('.screen');
       const d = canvas.getContext('2d').getImageData(0, canvas.height / 2, canvas.width, canvas.height / 2).data;
       let ink = 0;
@@ -597,7 +597,52 @@ if (ndsRomArg) {
   nds.inkAfter = await bottomInk();
   nds.tapChangedScreen = Math.abs(nds.inkAfter - nds.inkBefore) > inkBefore * 0.2;
   console.log(`ds: ${JSON.stringify(nds)}`);
+  // Playing together on DSs: a second window opens the same game and joins.
+  // Both consoles then run in step within wireless range of each other, and
+  // the pen travels with the keys: a tap on the host's bottom screen closes
+  // the help page on the guest's console too.
+  await openLinkDialog({ evaluate });
+  await evaluate("document.querySelector('[data-action=host]').click(); true");
+  await sleep(400);
+  const dsCode = await evaluate("document.querySelector('.link-code').textContent");
+  const dsGuest = await newWindow(url);
+  await sleep(1500);
+  await dsGuest.evaluate("document.querySelector('.tab[data-tab=nds]').click(); document.querySelector('.rom-list[data-system=nds] .rom-main').click(); true");
+  await sleep(1500);
+  await openLinkDialog(dsGuest);
+  await dsGuest.evaluate(
+    `document.querySelector('.link-input').value = ${JSON.stringify(dsCode)}; document.querySelector('[data-action=join-form]').requestSubmit(); true`,
+  );
+  await sleep(1500);
+  nds.link = { modeHidden: await evaluate("document.querySelector('.link-mode').classList.contains('hidden')") };
+  await evaluate("document.querySelector('[data-action=start]').click(); true");
+  await sleep(6000);
+  nds.link.host = await linkState();
+  nds.link.guest = await linkState(dsGuest);
+  const spot = await evaluate("(() => { const r = document.querySelector('.screen').getBoundingClientRect(); return { tapX: r.left + (r.width * 243.5) / 256, tapY: r.top + (r.height * (192 + 10.5)) / 384 }; })()");
+  Object.assign(nds, spot);
+  nds.link.guestInkBefore = await bottomInk(dsGuest);
+  await tap("pointerdown", 1);
+  await sleep(250);
+  await tap("pointerup", 0);
+  await sleep(3000);
+  // The guest's own console is untouched (WordleDS is not a multiplayer game);
+  // watching player 1's console from the guest's machine shows the tap.
+  nds.link.guestOwnInkAfter = await bottomInk(dsGuest);
+  await dsGuest.evaluate("(() => { const s = document.querySelector('[data-view]'); s.value = '0'; s.dispatchEvent(new Event('change')); return s.value; })()");
+  await sleep(800);
+  nds.link.guestInkAfter = await bottomInk(dsGuest);
+  nds.link.tapReachedGuest =
+    Math.abs(nds.link.guestInkAfter - nds.link.guestInkBefore) > nds.link.guestInkBefore * 0.2 &&
+    Math.abs(nds.link.guestOwnInkAfter - nds.link.guestInkBefore) < nds.link.guestInkBefore * 0.05;
+  nds.link.after = { host: await linkState(), guest: await linkState(dsGuest) };
+  console.log(`ds link: ${JSON.stringify(nds.link)}`);
+  await dsGuest.closeWindow();
+  await sleep(800);
   await evaluate("document.querySelector('[data-action=back]').click(); true");
+  await sleep(400);
+  await evaluate("document.querySelector('.modal-backdrop:not(.hidden) [data-action=confirm]')?.click(); true");
+  for (let i = 0; i < 24 && !(await evaluate("document.querySelector('.player').classList.contains('hidden')")); i++) await sleep(250);
   await sleep(500);
 }
 
@@ -663,6 +708,9 @@ if (
   !phone.landscape.pillsSameRow ||
   !phone.landscape.pillsHugScreen ||
   (nds && !(nds.listed === 1 && nds.system === "nds" && nds.width === 256 && nds.height === 384 && nds.xyShown && nds.tapChangedScreen)) ||
+  (nds &&
+    !(nds.link.modeHidden && nds.link.host.linked && nds.link.guest.linked && nds.link.guest.frame >= 100 && nds.link.tapReachedGuest &&
+      nds.link.after.host.linked && nds.link.after.guest.linked && nds.link.after.guest.frame > nds.link.guest.frame)) ||
   phone.landscape.shoulderWidthRatio < 0.9 ||
   !phone.landscape.editor.editing ||
   phone.landscape.editor.handles !== 7 ||

@@ -18,6 +18,14 @@ export const Key = {
 
 export type KeyName = keyof typeof Key;
 
+/**
+ * Playing together on DSs, each frame's input number carries the pen as well
+ * as the keys: bit 30 says it does, bit 28 that the pen is down, bits 12–19
+ * and 20–27 where it is (x, y).
+ */
+export const PEN_INCLUDED = 1 << 30;
+export const PEN_DOWN = 1 << 28;
+
 export const SCREEN_WIDTH = 240;
 export const SCREEN_HEIGHT = 160;
 
@@ -51,7 +59,8 @@ export type ToWorker =
   | { type: "pause" }
   /**
    * The UI's display loop asks for one emulated frame (see `platform/pacer.ts`).
-   * On a link, `keys` holds every player's keys for that frame; `snapshot` asks
+   * On a link, `keys` holds every player's keys for that frame (with the pen
+   * packed in, on DSs: see `PEN_INCLUDED`); `snapshot` asks
    * for the state before it to be kept (some keys were guessed) under `frame`.
    */
   | { type: "frame"; keys?: number[]; frame?: number; snapshot?: boolean }

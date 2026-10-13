@@ -25,6 +25,7 @@ use crate::sound::{self, Sound};
 use crate::spi::Spi;
 use crate::timers::Timers;
 use crate::video::{self, Video, SCREEN_HEIGHT};
+use crate::wifi::Wifi;
 use serde::{Deserialize, Serialize};
 
 pub const ARM9: usize = 0;
@@ -104,6 +105,8 @@ pub struct Bus {
     pub powcnt2: u16,
     pub wifiwaitcnt: u16,
     pub sound: Sound,
+    /// The wireless hardware (ARM7), at 04800000h.
+    pub wifi: Wifi,
 }
 
 impl Bus {
@@ -148,6 +151,7 @@ impl Bus {
             powcnt2: 0,
             wifiwaitcnt: 0,
             sound: Sound::new(),
+            wifi: Wifi::new(),
         };
         if let Some(image) = bios9 {
             let n = image.len().min(BIOS9_SIZE);
@@ -225,7 +229,17 @@ impl Bus {
                     self.scheduler.schedule_at(Event::RtcSecond, at + rtc::CYCLES_PER_SECOND);
                 }
                 Event::MathDone => {}
+                Event::WifiTimer => self.wifi.on_timer(at, &mut self.scheduler),
             }
+        }
+        self.wifi.poll(self.scheduler.now());
+        self.wifi_irq();
+    }
+
+    /// Raises the ARM7's wireless interrupt when the hardware's line rises.
+    pub(crate) fn wifi_irq(&mut self) {
+        if self.wifi.take_irq_edge() {
+            self.raise(ARM7, Interrupt::Wifi);
         }
     }
 

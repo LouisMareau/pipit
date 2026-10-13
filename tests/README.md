@@ -17,6 +17,10 @@ its console on both screens, and the same with `WordleDS.nds` its how-to-play
 screens (a BlocksDS build, so it also exercises the cothread scheduler). The 3D
 engine is eyeballed with the 44 Nitro Engine examples (`roms/nds/nitro-engine/`):
 `node scripts/nitro-engine.mjs` runs them all and screenshots each into `build/nds/ne/`.
+Two consoles within wireless range are checked by `crates/nds/tests/wireless.rs` (a
+data frame, then a host command with its reply and acknowledgement), and `pipit link
+a.nds b.nds --frames 120 --check-rollback 30` runs a pair in lockstep and proves their
+states restore exactly.
 
 Run everything with:
 

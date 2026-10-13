@@ -106,6 +106,8 @@ state. The ARM9 is an `Arch::V5TE` core, the ARM7 an `Arch::V4T` one, both from
 | `rtc.rs` | Real-time clock | The bit-banged S-35180 protocol, status and alarm registers, a once-a-second event for its interrupt; time runs on emulated cycles from a Unix time the front-end sets |
 | `backup.rs` | Card saves | The save chip behind AUXSPI: EEPROM (4 Kbit to 512 Kbit) or Flash, told apart by the first write's address bytes or a save file's size; infrared cards' pass-through |
 | `gpu3d/` | 3D engine | `geometry.rs`: the command set, matrices, lighting, clipping, polygon assembly; `render.rs`: the scanline rasterizer with depth, texturing (`texture.rs`), shading modes, blending, shadows, edge marking and fog; the frame goes to engine A's BG0 at the swap |
+| `wifi.rs` | Wireless | The hardware at 04800000h as games drive it: the registers, the 8 KB buffer RAM, the microsecond counter and its beacon interrupts, the transmit locations and the receive ring, and the multiplayer exchange it runs by itself (command, replies, acknowledgement); frames go out through `take_outbox` and come in through `receive`, with no radio in between |
+| `link.rs` | Link | Up to sixteen consoles within range of each other, in lockstep in 15 µs steps: a frame sent during a step reaches the others at its end; the same state and rollback API as the GBA link |
 | `math.rs` | Divider, square root | The ARM9's 280h–2BFh block; results are immediate |
 | `dma.rs`, `timers.rs`, `irq.rs` | Per CPU | The ARM9's eight DMA timings and 21-bit counts, the ARM7's four and 16-bit; 32-bit IE/IF |
 | `bios/` | BIOS | Replacement images with only the exception vectors and interrupt dispatchers; every SWI in `bios/swi.rs`; optional real BIOS images |
@@ -141,7 +143,9 @@ caches are not modelled: accesses outside the TCMs cost one bus cycle per
   in-process link, and only button states cross the wire. The host chooses
   whether that link is a cable or Wireless Adapters; the adapters are emulated
   in the core too (`rfu.rs`, `wireless.rs`), so the wire carries the same
-  button states either way. Emulation is
+  button states either way; DS consoles are within wireless range of each
+  other (the DS crate's `wifi.rs` and `link.rs`), and the pen travels with
+  the keys. Emulation is
   deterministic, so both machines compute the same two games and each shows its
   own console; keys are applied a few frames late to hide latency, and everyone
   compares state digests every second to catch drift. Keys that are late are
