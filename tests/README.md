@@ -14,7 +14,9 @@ scripts/rockwrestler.mjs` drives its menu headless and reports every sub-test.
 Two homebrew titles serve as eyeball tests of the 2D engines: `pipit run
 tests/roms/nds/GodMode9i.nds --frames 300 --screenshot build/nds/gm9i.png` shows
 its console on both screens, and the same with `WordleDS.nds` its how-to-play
-screens (a BlocksDS build, so it also exercises the cothread scheduler).
+screens (a BlocksDS build, so it also exercises the cothread scheduler). The 3D
+engine is eyeballed with the 44 Nitro Engine examples (`roms/nds/nitro-engine/`):
+`node scripts/nitro-engine.mjs` runs them all and screenshots each into `build/nds/ne/`.
 
 Run everything with:
 

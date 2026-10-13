@@ -28,4 +28,8 @@ mkdir -p nds
 fetch https://raw.githubusercontent.com/RockPolish/rockwrestler/master/rockwrestler.nds nds/rockwrestler.nds # CPU, IPC, memory control, math (WIP)
 fetch https://github.com/Epicpkmn11/WordleDS/releases/download/v3.2.3/WordleDS.nds nds/WordleDS.nds      # 2D homebrew: backgrounds, sprites, touch
 fetch https://github.com/DS-Homebrew/GodMode9i/releases/download/v3.10.0/GodMode9i.nds nds/GodMode9i.nds # 2D homebrew: console text, file browser (GPLv3)
+if [ ! -d nds/nitro-engine ]; then                                              # Nitro Engine examples: 44 small 3D demos (MIT)
+  fetch https://github.com/AntonioND/nitro-engine/releases/download/v0.13.0/nitro-engine-v0.13.0-examples.zip nds/nitro-engine.zip
+  mkdir -p nds/nitro-engine && unzip -q nds/nitro-engine.zip -d nds/nitro-engine && rm nds/nitro-engine.zip
+fi
 echo "Test ROMs ready in $(pwd)"
