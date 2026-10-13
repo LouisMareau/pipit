@@ -111,3 +111,82 @@ pub fn set_mac(image: &mut [u8], mac: [u8; 6]) {
     let crc = crc16(0, &image[0x2E..0x2E + 0x138]);
     image[0x2C..0x2E].copy_from_slice(&crc.to_le_bytes());
 }
+
+/// A console's own settings, the ones games show: the nickname (up to ten
+/// characters), the favourite colour (0–15), the birthday, and the language
+/// (0 Japanese, 1 English, 2 French, 3 German, 4 Italian, 5 Spanish).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct User {
+    pub nickname: String,
+    pub color: u8,
+    pub birth_month: u8,
+    pub birth_day: u8,
+    pub language: u8,
+}
+
+impl User {
+    /// What an image's user settings say.
+    pub fn of(image: &[u8]) -> Self {
+        let s = user_settings_of(image);
+        let len = usize::from(u16::from_le_bytes([s[0x1A], s[0x1B]])).min(10);
+        let units: Vec<u16> =
+            (0..len).map(|i| u16::from_le_bytes([s[6 + i * 2], s[7 + i * 2]])).collect();
+        Self {
+            nickname: String::from_utf16_lossy(&units),
+            color: s[2] & 0xF,
+            birth_month: s[3],
+            birth_day: s[4],
+            language: s[0x64] & 7,
+        }
+    }
+
+    /// Writes these settings into both slots of `image`, keeping everything
+    /// else (the touch calibration, the flags), with the CRC right.
+    pub fn apply(&self, image: &mut [u8]) {
+        let offset = image
+            .get(0x20..0x22)
+            .map_or(USER_SETTINGS, |b| usize::from(u16::from_le_bytes([b[0], b[1]])) * 8);
+        let mut s = user_settings_of(image);
+        s[2] = self.color & 0xF;
+        s[3] = self.birth_month.clamp(1, 12);
+        s[4] = self.birth_day.clamp(1, 31);
+        s[6..0x1A].fill(0);
+        let units: Vec<u16> = self.nickname.encode_utf16().take(10).collect();
+        for (i, c) in units.iter().enumerate() {
+            s[6 + i * 2..8 + i * 2].copy_from_slice(&c.to_le_bytes());
+        }
+        s[0x1A..0x1C].copy_from_slice(&(units.len() as u16).to_le_bytes());
+        s[0x64] = (s[0x64] & !7) | (self.language & 7);
+        let crc = crc16(0xFFFF, &s[..0x70]);
+        s[0x72..0x74].copy_from_slice(&crc.to_le_bytes());
+        for slot in [offset, offset + 0x100] {
+            if let Some(dst) = image.get_mut(slot..slot + 0x74) {
+                dst.copy_from_slice(&s);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod user_tests {
+    use super::*;
+
+    #[test]
+    fn user_settings_round_trip_through_the_image() {
+        let mut image = default_image();
+        assert_eq!(User::of(&image).nickname, "PIPIT");
+        let user =
+            User { nickname: "Loup".into(), color: 9, birth_month: 7, birth_day: 14, language: 2 };
+        user.apply(&mut image);
+        assert_eq!(User::of(&image), user);
+        // The calibration stays, and the second slot carries a valid copy too.
+        let s = user_settings_of(&image);
+        assert_eq!(&s[0x58..0x64], &default_user_settings()[0x58..0x64]);
+        let second = &image[USER_SETTINGS + 0x100..USER_SETTINGS + 0x174];
+        assert_eq!(
+            crc16(0xFFFF, &second[..0x70]),
+            u16::from_le_bytes([second[0x72], second[0x73]])
+        );
+        assert_eq!(second[2], 9);
+    }
+}

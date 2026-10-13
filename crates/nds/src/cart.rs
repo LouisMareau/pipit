@@ -89,9 +89,13 @@ impl Cart {
         };
         let game_code = text(12, 4);
         let chip_id = 0x0000_3FC2 | ((rom.len() as u32 / 0x10_0000).saturating_sub(1) & 0xFF) << 8;
+        let mut backup = Backup::new(game_code.starts_with('I'));
+        if let Some((kind, size)) = crate::savedb::lookup(&game_code) {
+            backup.set_kind_sized(kind, size);
+        }
         Self {
             title: text(0, 12),
-            backup: Backup::new(game_code.starts_with('I')),
+            backup,
             auxspi_data: 0,
             game_code,
             arm9: program(0x20),

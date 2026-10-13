@@ -40,6 +40,19 @@ export interface LinkLoad {
   wireless?: boolean;
 }
 
+/**
+ * A DS console's own settings, as games show them: the nickname (up to ten
+ * characters), the favourite colour (0–15), the birthday, and the language
+ * (0 Japanese, 1 English, 2 French, 3 German, 4 Italian, 5 Spanish).
+ */
+export interface DsUser {
+  nickname: string;
+  color: number;
+  month: number;
+  day: number;
+  language: number;
+}
+
 /** What goes in a DS's GBA slot: nothing, the Rumble Pak, or a GBA cartridge with its save. */
 export interface Slot2Load {
   kind: "empty" | "rumble" | "cartridge";
@@ -63,6 +76,10 @@ export type ToWorker =
       link?: LinkLoad;
       /** For a DS: what is in its GBA slot (nothing when absent). */
       slot2?: Slot2Load;
+      /** For a DS: the console's firmware image (Pipit's own when absent). */
+      firmware?: ArrayBuffer | null;
+      /** For a DS: the card's save chip by name, when the player named it ("auto" otherwise). */
+      saveType?: string;
     }
   | { type: "run" }
   | { type: "pause" }
@@ -90,6 +107,12 @@ export type ToWorker =
   | { type: "touch"; x: number; y: number }
   /** Changes what is in the DS's GBA slot while it runs. */
   | { type: "slot2"; slot2: Slot2Load }
+  /** Names the DS card's save chip while the game runs (its save is reloaded into it). */
+  | { type: "saveType"; name: string }
+  /** Asks what user settings a DS firmware image holds (Pipit's own when null); answered with `firmwareUser`. */
+  | { type: "firmwareUser"; image: ArrayBuffer | null }
+  /** Writes user settings into a DS firmware image (Pipit's own when null); answered with `firmware`. */
+  | { type: "setFirmwareUser"; image: ArrayBuffer | null; user: DsUser }
   | { type: "fastForward"; enabled: boolean }
   | { type: "colors"; mode: number; strength: number }
   | { type: "requestSave" }
@@ -118,6 +141,9 @@ export type FromWorker =
   | { type: "save"; data: ArrayBuffer }
   /** The GBA cartridge in a DS's slot changed its save memory. */
   | { type: "slot2Save"; data: ArrayBuffer }
+  /** A DS firmware image to keep: the console wrote to it, or it carries new user settings. */
+  | { type: "firmware"; data: ArrayBuffer }
+  | { type: "firmwareUser"; user: DsUser }
   | { type: "state"; slot: number; data: ArrayBuffer }
   | { type: "error"; message: string };
 
@@ -133,6 +159,8 @@ export interface RomEntry {
   lastPlayed: number;
   /** A DS game's GBA slot: "empty", "rumble" (the Rumble Pak, the default) or a GBA game's id. */
   slot2?: string;
+  /** A DS game's save chip, named by the player ("eeprom4k" … "flash64m"); absent or "auto" lets Pipit tell. */
+  saveType?: string;
 }
 
 /** Keys in the order the remapping screens list them (X and Y are the DS's). */
@@ -292,3 +320,19 @@ export const DEFAULT_SETTINGS: Settings = {
 
 /** Number of save-state slots offered in the UI. */
 export const STATE_SLOTS = 3;
+
+/** The DS card save chips a player can name, with their labels (see `RomEntry.saveType`). */
+export const SAVE_TYPES: [string, string][] = [
+  ["auto", "Auto (detected)"],
+  ["eeprom4k", "EEPROM 4 Kbit (512 B)"],
+  ["eeprom64k", "EEPROM 64 Kbit (8 KB)"],
+  ["eeprom512k", "EEPROM 512 Kbit (64 KB)"],
+  ["fram256k", "FRAM 256 Kbit (32 KB)"],
+  ["eeprom1m", "EEPROM 1 Mbit (128 KB)"],
+  ["flash2m", "Flash 2 Mbit (256 KB)"],
+  ["flash4m", "Flash 4 Mbit (512 KB)"],
+  ["flash8m", "Flash 8 Mbit (1 MB)"],
+  ["flash16m", "Flash 16 Mbit (2 MB)"],
+  ["flash32m", "Flash 32 Mbit (4 MB)"],
+  ["flash64m", "Flash 64 Mbit (8 MB)"],
+];

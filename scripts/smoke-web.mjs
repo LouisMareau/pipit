@@ -610,6 +610,17 @@ if (ndsRomArg) {
   await evaluate("(() => { const s = document.querySelector('[data-slot2]'); s.value = 'rumble'; s.dispatchEvent(new Event('change')); })()");
   await sleep(800);
   nds.slot2.playing = await evaluate("({ fps: document.querySelector('.toolbar-fps').textContent, playing: !document.querySelector('.player').classList.contains('hidden') })");
+  // The save chip can be named, and the console settings (kept in the
+  // firmware image) survive closing and reopening their dialog.
+  nds.saveTypes = await evaluate("document.querySelector('[data-save-type]').options.length");
+  await evaluate("document.querySelector('[data-action=ds-settings]').click(); true");
+  await sleep(600);
+  nds.dsSettings = await evaluate("(() => { const d = document.querySelector('.ds-settings'); const open = !d.closest('.modal-backdrop').classList.contains('hidden'); const name = d.querySelector('[data-ds=nickname]'); const before = name.value; name.value = 'TESTER'; d.querySelector('[data-ds=language]').value = '2'; d.querySelector('[data-action=save]').click(); return { open, before }; })()");
+  await sleep(1200);
+  nds.dsSettings.toast = await evaluate("Array.from(document.querySelectorAll('.toast')).map((t) => t.textContent).join('|')");
+  await evaluate("document.querySelector('[data-action=ds-settings]').click(); true");
+  await sleep(600);
+  nds.dsSettings.after = await evaluate("(() => { const d = document.querySelector('.ds-settings'); const r = { name: d.querySelector('[data-ds=nickname]').value, language: d.querySelector('[data-ds=language]').value, note: d.querySelector('.ds-firmware-note').textContent }; d.querySelector('[data-action=close]').click(); return r; })()");
   console.log(`ds: ${JSON.stringify(nds)}`);
   // Playing together on DSs: a second window opens the same game and joins.
   // Both consoles then run in step within wireless range of each other, and
@@ -723,6 +734,9 @@ if (
   !phone.landscape.pillsHugScreen ||
   (nds && !(nds.listed === 1 && nds.system === "nds" && nds.width === 256 && nds.height === 384 && nds.xyShown && nds.tapChangedScreen)) ||
   (nds && !(nds.slot2.shown && nds.slot2.options.length === 3 && /hello inserted in the GBA slot/.test(nds.slot2.toast) && nds.slot2.playing.playing)) ||
+  (nds &&
+    !(nds.saveTypes === 12 && nds.dsSettings.open && nds.dsSettings.before === "PIPIT" && /Console settings saved/.test(nds.dsSettings.toast) &&
+      nds.dsSettings.after.name === "TESTER" && nds.dsSettings.after.language === "2" && /your firmware image/.test(nds.dsSettings.after.note))) ||
   (nds &&
     !(nds.link.modeHidden && nds.link.host.linked && nds.link.guest.linked && nds.link.guest.frame >= 100 && nds.link.tapReachedGuest &&
       nds.link.after.host.linked && nds.link.after.guest.linked && nds.link.after.guest.frame > nds.link.guest.frame)) ||

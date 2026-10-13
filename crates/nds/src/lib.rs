@@ -18,6 +18,7 @@ pub mod link;
 pub mod math;
 pub mod memory;
 pub mod rtc;
+pub mod savedb;
 pub mod scheduler;
 pub mod slot2;
 pub mod sound;
@@ -338,6 +339,22 @@ impl Nds {
     /// Whether the Rumble Pak's actuator moved since the last call.
     pub fn take_rumble(&mut self) -> bool {
         self.bus.slot2.take_rumble()
+    }
+
+    /// Names the card's save chip (what the user knows better than the
+    /// first write tells), `size` bytes of it; its contents start blank.
+    pub fn set_save_type(&mut self, kind: backup::Kind, size: usize) {
+        self.bus.cart.backup.set_kind_sized(kind, size);
+    }
+
+    /// The firmware image, with whatever the console wrote to it.
+    pub fn firmware(&self) -> &[u8] {
+        &self.bus.spi.firmware
+    }
+
+    /// Whether the firmware changed since the last call.
+    pub fn take_firmware_dirty(&mut self) -> bool {
+        std::mem::replace(&mut self.bus.spi.firmware_dirty, false)
     }
 
     /// The game asked the power management chip to switch the console off.

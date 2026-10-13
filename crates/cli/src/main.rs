@@ -26,6 +26,7 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum Command {
     /// Run a ROM for a number of frames.
     Run {
@@ -52,6 +53,10 @@ enum Command {
         /// The GBA cartridge's save: loaded before running, written back afterwards.
         #[arg(long)]
         slot2_save: Option<PathBuf>,
+        /// The DS card's save chip, when its first write does not tell: eeprom4k,
+        /// eeprom64k, eeprom512k, fram256k, eeprom1m, flash2m, flash4m … flash64m.
+        #[arg(long)]
+        save_type: Option<String>,
         /// Load this save file before running and write it back afterwards.
         #[arg(long)]
         save: Option<PathBuf>,
@@ -145,6 +150,7 @@ fn main() -> Result<()> {
             firmware,
             slot2,
             slot2_save,
+            save_type,
             save,
             regs,
             trace,
@@ -158,9 +164,15 @@ fn main() -> Result<()> {
         } => {
             let rom_data = fs::read(&rom).with_context(|| format!("reading {}", rom.display()))?;
             let bios_data = bios.map(fs::read).transpose().context("reading BIOS")?;
-            let firmware_data = firmware.map(fs::read).transpose().context("reading firmware")?;
+            let firmware_data =
+                firmware.as_ref().map(fs::read).transpose().context("reading firmware")?;
             let mut machine = Machine::open(&rom, rom_data, bios_data, firmware_data);
             println!("{}", machine.describe());
+            if let Some(name) = &save_type {
+                let (kind, size) = pipit_nds::backup::Kind::parse(name)
+                    .with_context(|| format!("unknown save type {name}; see --help"))?;
+                machine.set_save_type(kind, size);
+            }
             if let Some(path) = &save {
                 if let Ok(data) = fs::read(path) {
                     machine.load_save_data(&data);
@@ -249,6 +261,10 @@ fn main() -> Result<()> {
             }
             if let (Some(path), Some(data)) = (slot2_save, machine.slot2_save_data()) {
                 fs::write(&path, data)?;
+            }
+            // The firmware goes back to its file when the console wrote to it.
+            if let Some(path) = firmware.filter(|_| machine.take_firmware_dirty()) {
+                fs::write(&path, machine.firmware())?;
             }
         }
         Command::Bench { rom, frames } => {

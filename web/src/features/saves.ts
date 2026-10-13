@@ -10,10 +10,15 @@ export function exportSave(data: ArrayBuffer, name: string) {
 }
 
 export function pickSaveFile(): Promise<ArrayBuffer | null> {
+  return pickFile(".sav,.sa1,.srm");
+}
+
+/** Lets the player choose a file; null when they cancel. */
+export function pickFile(accept: string): Promise<ArrayBuffer | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".sav,.sa1,.srm";
+    input.accept = accept;
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       resolve(file ? await file.arrayBuffer() : null);

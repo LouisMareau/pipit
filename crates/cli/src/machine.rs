@@ -173,6 +173,28 @@ impl Machine {
         }
     }
 
+    /// Names the DS card's save chip; nothing on other machines.
+    pub fn set_save_type(&mut self, kind: pipit_nds::backup::Kind, size: usize) {
+        if let Machine::Nds(n) = self {
+            n.set_save_type(kind, size);
+        }
+    }
+
+    /// The DS firmware image; empty on other machines.
+    pub fn firmware(&self) -> &[u8] {
+        match self {
+            Machine::Nds(n) => n.firmware(),
+            _ => &[],
+        }
+    }
+
+    pub fn take_firmware_dirty(&mut self) -> bool {
+        match self {
+            Machine::Nds(n) => n.take_firmware_dirty(),
+            _ => false,
+        }
+    }
+
     pub fn peek(&mut self, addr: u32) -> u8 {
         match self {
             Machine::Gba(g) => g.bus.load8(addr),

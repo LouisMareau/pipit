@@ -150,3 +150,17 @@ function readHeaderString(data: ArrayBuffer, offset: number, length: number): st
   }
   return out;
 }
+
+/** A file the app keeps on the device, such as the DS firmware image. */
+export async function getFile(key: string): Promise<ArrayBuffer | null> {
+  const row = await tx<{ key: string; data: ArrayBuffer } | undefined>("settings", "readonly", (s) => s.get(`file:${key}`));
+  return row?.data ?? null;
+}
+
+export async function putFile(key: string, data: ArrayBuffer) {
+  await tx("settings", "readwrite", (s) => s.put({ key: `file:${key}`, data }));
+}
+
+export async function deleteFile(key: string) {
+  await tx("settings", "readwrite", (s) => s.delete(`file:${key}`));
+}

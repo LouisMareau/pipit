@@ -71,7 +71,7 @@ impl Emulator {
     /// (with an optional BIOS image), 1 a Game Boy (Color).
     #[wasm_bindgen(constructor)]
     pub fn new(rom: &[u8], bios: Option<Vec<u8>>, system: u8) -> Emulator {
-        Self::linked(rom, 1, 0, bios, system, false)
+        Self::linked(rom, 1, 0, bios, system, false, None)
     }
 
     /// `players` consoles on a link cable, all running this ROM; `local` is the
@@ -83,10 +83,13 @@ impl Emulator {
         bios: Option<Vec<u8>>,
         system: u8,
         wireless: bool,
+        firmware: Option<Vec<u8>>,
     ) -> Emulator {
         let (core, width, height) = if system == SYSTEM_NDS {
             // Both screens, the top one above the bottom one.
-            let nodes = (0..players).map(|_| Nds::new(rom.to_vec(), None, None, None)).collect();
+            let nodes = (0..players)
+                .map(|_| Nds::new(rom.to_vec(), None, None, firmware.clone()))
+                .collect();
             let link = pipit_nds::Link::new(nodes);
             (Core::Nds(link), pipit_nds::SCREEN_WIDTH, pipit_nds::SCREEN_HEIGHT * 2)
         } else if system == SYSTEM_GBC {
@@ -280,6 +283,32 @@ impl Emulator {
         }
     }
 
+    /// Names the card's save chip (`eeprom4k` … `flash64m`) on every DS of
+    /// the link, blank; false for a name it does not know.
+    pub fn set_save_type(&mut self, name: &str) -> bool {
+        let Core::Nds(link) = &mut self.core else { return false };
+        let Some((kind, size)) = pipit_nds::backup::Kind::parse(name) else { return false };
+        for node in link.nodes_mut() {
+            node.set_save_type(kind, size);
+        }
+        true
+    }
+
+    /// This player's DS firmware image, with whatever the console wrote to it.
+    pub fn firmware(&self) -> Option<Vec<u8>> {
+        match &self.core {
+            Core::Nds(link) => Some(link.nodes()[self.local].firmware().to_vec()),
+            _ => None,
+        }
+    }
+
+    pub fn take_firmware_dirty(&mut self) -> bool {
+        match &mut self.core {
+            Core::Nds(link) => link.nodes_mut()[self.local].take_firmware_dirty(),
+            _ => false,
+        }
+    }
+
     /// Takes the viewed console's audio since the last call (interleaved stereo i16
     /// at 32768 Hz); the other consoles' is dropped so it does not pile up.
     pub fn drain_audio(&mut self) -> Vec<i16> {
@@ -456,4 +485,39 @@ impl Emulator {
             Core::Nds(link) => link.nodes()[self.local].game_code().to_string(),
         }
     }
+}
+
+/// A DS firmware image (`image`, or Pipit's own when absent) with these user
+/// settings written in: what games show as the player's name, favourite
+/// colour (0–15), birthday and language (0 Japanese, 1 English, 2 French, 3
+/// German, 4 Italian, 5 Spanish).
+#[wasm_bindgen]
+pub fn firmware_with_user(
+    image: Option<Vec<u8>>,
+    nickname: &str,
+    color: u8,
+    month: u8,
+    day: u8,
+    language: u8,
+) -> Vec<u8> {
+    let mut image = image.unwrap_or_else(pipit_nds::firmware::default_image);
+    let user = pipit_nds::firmware::User {
+        nickname: nickname.to_string(),
+        color,
+        birth_month: month,
+        birth_day: day,
+        language,
+    };
+    user.apply(&mut image);
+    image
+}
+
+/// The user settings of a DS firmware image (Pipit's own when absent), tab-separated: nickname,
+/// colour, birth month, birth day, language.
+#[wasm_bindgen]
+pub fn firmware_user(image: Option<Vec<u8>>) -> String {
+    let u =
+        pipit_nds::firmware::User::of(&image.unwrap_or_else(pipit_nds::firmware::default_image));
+    let nickname: String = u.nickname.chars().filter(|c| *c != '\t').collect();
+    format!("{nickname}\t{}\t{}\t{}\t{}", u.color, u.birth_month, u.birth_day, u.language)
 }

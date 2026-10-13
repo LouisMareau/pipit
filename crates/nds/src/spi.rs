@@ -20,6 +20,10 @@ pub struct Spi {
     pub powered_off: bool,
     #[serde(skip)]
     pub firmware: Vec<u8>,
+    /// The image changed since the front-end last looked: bookkeeping, not
+    /// machine state.
+    #[serde(skip)]
+    pub firmware_dirty: bool,
     fw_addr: u32,
     fw_write_enabled: bool,
     /// The touch controller's last control byte, its conversion, and how
@@ -41,6 +45,7 @@ impl Spi {
             pm: [0; 5],
             powered_off: false,
             firmware,
+            firmware_dirty: false,
             fw_addr: 0,
             fw_write_enabled: false,
             tsc_control: 0,
@@ -111,7 +116,8 @@ impl Spi {
     }
 
     /// The firmware flash: a serial flash with the usual command set. Writes
-    /// change the image in memory only.
+    /// change the image in memory and set `firmware_dirty` for the front-end
+    /// to keep it.
     fn fw_transfer(&mut self, byte: u8) -> u8 {
         if self.pos == 0 {
             self.command = byte;
@@ -146,6 +152,7 @@ impl Spi {
                     let at = self.fw_addr as usize % len;
                     self.firmware[at] =
                         if self.command == 0x02 { self.firmware[at] & byte } else { byte };
+                    self.firmware_dirty = true;
                 }
                 // Writes stay within their 256-byte page.
                 self.fw_addr = (self.fw_addr & !0xFF) | (self.fw_addr.wrapping_add(1) & 0xFF);
@@ -162,6 +169,7 @@ impl Spi {
                     for i in 0..size {
                         self.firmware[(start + i) % len] = 0xFF;
                     }
+                    self.firmware_dirty = true;
                 }
                 0
             }

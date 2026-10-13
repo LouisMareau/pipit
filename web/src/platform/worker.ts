@@ -7,8 +7,8 @@
 // buffers are recycled with the UI thread. (Large per-frame allocations cause
 // periodic garbage-collection pauses that show up as stutter.)
 
-import init, { Emulator } from "@wasm/pipit_wasm.js";
-import type { FromWorker, LinkLoad, Slot2Load, System, ToWorker } from "../types";
+import init, { Emulator, firmware_user, firmware_with_user } from "@wasm/pipit_wasm.js";
+import type { DsUser, FromWorker, LinkLoad, Slot2Load, System, ToWorker } from "../types";
 
 const SAVE_CHECK_FRAMES = 60;
 /** `system` as the WASM side numbers it. */
@@ -30,6 +30,8 @@ let sideScreens = false;
 /** Rollback: states kept before frames that ran on guessed keys, by frame number. */
 const states = new Map<number, Uint8Array>();
 const MAX_STATES = 16;
+/** The game's save as last loaded or reported, for refilling a renamed chip. */
+let lastSave: ArrayBuffer | null = null;
 let colorMode = 1;
 let colorStrength = 1;
 let frameCounter = 0;
@@ -49,7 +51,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   const msg = event.data;
   switch (msg.type) {
     case "load":
-      await load(msg.rom, msg.save, msg.bios, msg.unixSeconds, msg.system, msg.link, msg.slot2);
+      await load(msg.rom, msg.save, msg.bios, msg.unixSeconds, msg.system, msg.link, msg.slot2, msg.firmware, msg.saveType);
       break;
     case "run":
       running = true;
@@ -91,6 +93,24 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     case "slot2":
       applySlot2(msg.slot2);
       break;
+    case "saveType":
+      // The chip starts blank: the game's save goes back into it.
+      if (emulator?.set_save_type(msg.name) && lastSave) emulator.load_save_data(new Uint8Array(lastSave));
+      break;
+    case "firmwareUser": {
+      await ensureWasm();
+      const parts = firmware_user(msg.image ? new Uint8Array(msg.image) : undefined).split("\t");
+      post({ type: "firmwareUser", user: { nickname: parts[0] ?? "", color: Number(parts[1]), month: Number(parts[2]), day: Number(parts[3]), language: Number(parts[4]) } });
+      break;
+    }
+    case "setFirmwareUser": {
+      await ensureWasm();
+      const u = msg.user;
+      const image = firmware_with_user(msg.image ? new Uint8Array(msg.image) : undefined, u.nickname, u.color, u.month, u.day, u.language);
+      const data = image.buffer as ArrayBuffer;
+      post({ type: "firmware", data }, [data]);
+      break;
+    }
     case "fastForward":
       if (linked) break;
       fastForward = msg.enabled;
@@ -138,34 +158,37 @@ async function load(
   system: System,
   link?: LinkLoad,
   slot2?: Slot2Load,
+  firmware?: ArrayBuffer | null,
+  saveType?: string,
 ) {
   try {
-    if (!memory) {
-      const wasm = await init();
-      memory = wasm.memory;
-    }
+    await ensureWasm();
     emulator?.free();
+    lastSave = save;
     // Frame buffers are sized for the console; the pool may hold the other size.
     spareBuffers.length = 0;
     states.clear();
     view = link?.local ?? 0;
     const biosBytes = bios ? new Uint8Array(bios) : undefined;
+    const firmwareBytes = firmware ? new Uint8Array(firmware) : undefined;
     linked = link !== undefined && link.players > 1;
+    emulator = Emulator.linked(
+      new Uint8Array(rom),
+      linked && link ? link.players : 1,
+      linked && link ? link.local : 0,
+      biosBytes,
+      SYSTEM_CODES[system],
+      link?.wireless === true,
+      firmwareBytes,
+    );
+    // A chip the player named: before the saves, which fill it.
+    if (saveType && saveType !== "auto") emulator.set_save_type(saveType);
     if (link && linked) {
-      emulator = Emulator.linked(
-        new Uint8Array(rom),
-        link.players,
-        link.local,
-        biosBytes,
-        SYSTEM_CODES[system],
-        link.wireless === true,
-      );
       link.saves.forEach((data, i) => {
         if (data) emulator?.load_player_save_data(i, new Uint8Array(data));
       });
-    } else {
-      emulator = new Emulator(new Uint8Array(rom), biosBytes, SYSTEM_CODES[system]);
-      if (save) emulator.load_save_data(new Uint8Array(save));
+    } else if (save) {
+      emulator.load_save_data(new Uint8Array(save));
     }
     emulator.set_time(unixSeconds);
     applySlot2(slot2);
@@ -182,6 +205,13 @@ async function load(
   } catch (error) {
     post({ type: "error", message: `Could not start the game: ${String(error)}` });
   }
+}
+
+/** Loads the WASM module once. */
+async function ensureWasm() {
+  if (memory) return;
+  const wasm = await init();
+  memory = wasm.memory;
 }
 
 /** Puts what the UI chose in the DS's GBA slot (every console of a link alike). */
@@ -234,6 +264,7 @@ function step() {
   if (frameCounter % SAVE_CHECK_FRAMES === 0) {
     if (emulator.take_save_dirty()) sendSave();
     if (emulator.take_slot2_save_dirty()) sendSlot2Save();
+    if (emulator.take_firmware_dirty()) sendFirmware();
   }
   // No digest while some keys are still guesses: it could be corrected later.
   if (linked && frameCounter % HASH_FRAMES === 0 && states.size === 0) {
@@ -303,7 +334,15 @@ function sendSlot2Save() {
   if (data) post({ type: "slot2Save", data }, [data]);
 }
 
+function sendFirmware() {
+  const data = emulator?.firmware()?.buffer as ArrayBuffer | undefined;
+  if (data) post({ type: "firmware", data }, [data]);
+}
+
 function sendSave() {
   const data = emulator?.save_data()?.buffer as ArrayBuffer | undefined;
-  if (data) post({ type: "save", data }, [data]);
+  if (data) {
+    lastSave = data.slice(0);
+    post({ type: "save", data }, [data]);
+  }
 }

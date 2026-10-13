@@ -1,6 +1,6 @@
 // Top-level UI: library screen and player screen, wired to the emulator worker.
 
-import { exportSave, pickSaveFile } from "../features/saves";
+import { exportSave, pickFile, pickSaveFile } from "../features/saves";
 import { takeScreenshot } from "../features/screenshots";
 import { AudioOutput } from "../platform/audio";
 import { EmulatorClient } from "../platform/emulator-client";
@@ -10,8 +10,9 @@ import type { Pending, Role, SessionStart } from "../platform/netplay";
 import { connect, generateCode, hashRom, LinkSession, listen } from "../platform/netplay";
 import { FramePacer } from "../platform/pacer";
 import * as storage from "../platform/storage";
-import type { ControllerMapping, ResolvedTouchLayout, RomEntry, Settings, Slot2Load, TouchLayout } from "../types";
-import { DEFAULT_CONNECTION, DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key, PEN_DOWN, PEN_INCLUDED, STATE_SLOTS } from "../types";
+import type { ControllerMapping, DsUser, ResolvedTouchLayout, RomEntry, Settings, Slot2Load, TouchLayout } from "../types";
+import { DEFAULT_CONNECTION, DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key, PEN_DOWN, PEN_INCLUDED, SAVE_TYPES, STATE_SLOTS } from "../types";
+import { DsSettings } from "./ds-settings";
 import { ConfirmDialog } from "./confirm-dialog";
 import { ControllerSettings } from "./controller-settings";
 import { ControllerToggle } from "./controller-toggle";
@@ -72,6 +73,9 @@ export class App {
   private controller = new ControllerToggle();
   private controllerSettings = new ControllerSettings();
   private keyboardSettings = new KeyboardSettings();
+  private dsSettings = new DsSettings();
+  /** A console-settings save is on its way back as a firmware image. */
+  private dsSettingsPending = false;
   private layoutEditor: LayoutEditor;
   /** The touch layout in effect after "auto" is resolved from the orientation. */
   private resolvedLayout: ResolvedTouchLayout = "gbasp";
@@ -168,8 +172,10 @@ export class App {
         <button class="btn hidden" data-action="copy-link-log" title="What the session did, for bug reports; the browser console (F12) shows it too">Copy session log</button>
         <label class="row link-view hidden"><span>Watch</span><select data-view></select></label>
         <label class="row link-side"><input type="checkbox" data-setting="sideScreens" /><span>Show the other players&#8217; screens beside yours</span></label>
-        <h4 class="ds-only">GBA slot</h4>
-        <label class="row ds-only"><span>Inserted</span><select data-slot2></select></label>
+        <h4 class="ds-only">DS</h4>
+        <label class="row ds-only"><span>GBA slot</span><select data-slot2></select></label>
+        <label class="row ds-only" title="Pipit tells the card's save chip from the game's first write; name it when a game loses its save"><span>Save chip</span><select data-save-type>${SAVE_TYPES.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
+        <button class="btn ds-only" data-action="ds-settings">Console settings…</button>
         <h4>Keyboard</h4>
         <button class="btn" data-action="keyboard">Change key bindings…</button>
         <h4>Battery save</h4>
@@ -201,7 +207,7 @@ export class App {
     this.player.querySelector(".toolbar-controller")!.append(this.controller.element);
     this.stage.append(this.touch.element);
     this.layoutEditor = new LayoutEditor(this.stage);
-    this.player.append(this.controllerSettings.element, this.keyboardSettings.element, this.linkDialog.element, this.confirmDialog.element);
+    this.player.append(this.controllerSettings.element, this.keyboardSettings.element, this.dsSettings.element, this.linkDialog.element, this.confirmDialog.element);
     this.root.append(this.library.element, this.player);
 
     this.library.onPlay = (entry) => this.play(entry);
@@ -269,6 +275,63 @@ export class App {
     select.replaceChildren(option("rumble", "Rumble Pak"), option("empty", "Nothing"), ...games.map((g) => option(g.id, g.name)));
     const choice = entry.slot2 ?? "rumble";
     select.value = choice === "rumble" || choice === "empty" || games.some((g) => g.id === choice) ? choice : "empty";
+    const saveType = this.player.querySelector<HTMLSelectElement>("[data-save-type]")!;
+    saveType.value = SAVE_TYPES.some(([v]) => v === entry.saveType) ? entry.saveType! : "auto";
+  }
+
+  /** The player named the card's save chip: remembered for this game, and used now (the save moves into it). */
+  private async changeSaveType(name: string) {
+    const entry = this.current;
+    if (!entry || entry.system !== "nds") return;
+    entry.saveType = name;
+    await storage.updateRom(entry.id, { saveType: name });
+    const label = SAVE_TYPES.find(([v]) => v === name)?.[1] ?? name;
+    if (name === "auto") {
+      this.toast("Pipit will tell the save chip from the game's first write when it next starts");
+      return;
+    }
+    if (this.session) {
+      this.toast("The save chip is chosen when the game starts; it stays as it is while playing together");
+      return;
+    }
+    this.emulator.setSaveType(name);
+    this.toast(`Save chip: ${label}; the game's save was moved into it`);
+  }
+
+  /** Opens the console settings with what the stored firmware image holds (the worker reads it). */
+  private async openDsSettings() {
+    this.pauseForDialog(true);
+    this.emulator.requestFirmwareUser(await storage.getFile("ds-firmware"));
+  }
+
+  private async showDsSettings(user: DsUser) {
+    const image = await storage.getFile("ds-firmware");
+    const note = image ? `Kept in your firmware image (${Math.round(image.byteLength / 1024)} KB).` : "Kept in Pipit's own firmware image.";
+    this.dsSettings.open(user, note);
+  }
+
+  private async saveDsSettings(user: DsUser) {
+    this.dsSettingsPending = true;
+    this.emulator.setFirmwareUser(await storage.getFile("ds-firmware"), user);
+  }
+
+  /** A firmware dump from the player's own DS takes the place of Pipit's image. */
+  private async importFirmware() {
+    const data = await pickFile(".bin,.fw");
+    if (!data) return;
+    if (data.byteLength !== 0x20000 && data.byteLength !== 0x40000 && data.byteLength !== 0x80000) {
+      this.toast("That is not a DS firmware image (128, 256 or 512 KB)");
+      return;
+    }
+    await storage.putFile("ds-firmware", data);
+    this.toast("Firmware imported; it is used when a DS game starts");
+    this.emulator.requestFirmwareUser(data);
+  }
+
+  private async resetFirmware() {
+    await storage.deleteFile("ds-firmware");
+    this.toast("Back to Pipit's own firmware");
+    this.emulator.requestFirmwareUser(null);
   }
 
   /** The player changed what is in the GBA slot: remembered for this game, and inserted now. */
@@ -303,7 +366,8 @@ export class App {
     this.audio.clear();
     this.player.dataset["system"] = entry.system ?? "gba";
     const slot2 = await this.slot2Load(entry);
-    this.emulator.load(rom, save, null, entry.system ?? "gba", undefined, undefined, slot2);
+    const firmware = entry.system === "nds" ? await storage.getFile("ds-firmware") : null;
+    this.emulator.load(rom, save, null, entry.system ?? "gba", undefined, undefined, slot2, firmware, entry.saveType);
     await this.refreshSlot2Options(entry);
     await storage.touchRom(entry.id);
     await this.refreshStateSlots();
@@ -379,6 +443,16 @@ export class App {
     this.emulator.on("slot2Save", (data) => {
       if (this.slot2RomId) void storage.putSave(this.slot2RomId, data);
     });
+    // The DS firmware: kept whenever the console writes to it, or the player
+    // changed the console settings.
+    this.emulator.on("firmware", (data) => {
+      void storage.putFile("ds-firmware", data).then(() => {
+        if (!this.dsSettingsPending) return;
+        this.dsSettingsPending = false;
+        this.toast("Console settings saved; they take effect when a DS game starts");
+      });
+    });
+    this.emulator.on("firmwareUser", (user) => void this.showDsSettings(user));
     this.emulator.on("save", (data) => {
       this.latestSave = data;
       for (const resolve of this.saveWaiters.splice(0)) resolve(data.slice(0));
@@ -535,6 +609,13 @@ export class App {
     this.player.querySelector<HTMLSelectElement>("[data-slot2]")!.addEventListener("change", (e) => {
       void this.changeSlot2((e.target as HTMLSelectElement).value);
     });
+    this.player.querySelector<HTMLSelectElement>("[data-save-type]")!.addEventListener("change", (e) => {
+      void this.changeSaveType((e.target as HTMLSelectElement).value);
+    });
+    this.dsSettings.onClose = () => this.pauseForDialog(false);
+    this.dsSettings.onSave = (user) => void this.saveDsSettings(user);
+    this.dsSettings.onImport = () => void this.importFirmware();
+    this.dsSettings.onReset = () => void this.resetFirmware();
     this.linkDialog.onHost = () => void this.startSession("host", generateCode());
     this.linkDialog.onJoin = (code) => void this.startSession("guest", code);
     this.linkDialog.onCopyLog = () => void this.copyLinkLog();
@@ -988,6 +1069,9 @@ export class App {
           break;
         case "load-state":
           await this.loadState(slot);
+          break;
+        case "ds-settings":
+          await this.openDsSettings();
           break;
         case "export":
           this.emulator.requestSave();

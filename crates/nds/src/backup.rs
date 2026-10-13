@@ -1,7 +1,9 @@
-//! The save memory behind the card's AUXSPI: an EEPROM or a Flash chip the
-//! game never names. Pipit tells them apart by the first write (how many
-//! address bytes come before the data) or by the size of a save file loaded
-//! before the game runs, and keeps the data at the chip's size.
+//! The save memory behind the card's AUXSPI: an EEPROM, FRAM or Flash chip
+//! the game never names. Pipit knows some games' chips (`crate::savedb`),
+//! takes the user's word for others, and otherwise tells them apart by the
+//! first write (how many address bytes come before the data) or by the size
+//! of a save file loaded before the game runs; the data is kept at the
+//! chip's size.
 //!
 //! Cards with an infrared port (game codes starting with I) put a small
 //! controller in front of the chip: its first byte is a command, 00h
@@ -18,7 +20,11 @@ pub enum Kind {
     Eeprom8K,
     /// 512 Kbit EEPROM: two address bytes, 128-byte pages.
     Eeprom64K,
-    /// Three address bytes and 256-byte pages: Flash, or the 1 Mbit EEPROM.
+    /// 256 Kbit FRAM: two address bytes, writes of any length.
+    Fram32K,
+    /// 1 Mbit EEPROM: three address bytes, 256-byte pages, no erasing.
+    Eeprom128K,
+    /// Flash, 2 to 64 Mbit: three address bytes, 256-byte pages, erase commands.
     Flash,
 }
 
@@ -26,25 +32,30 @@ impl Kind {
     fn address_bytes(self) -> u32 {
         match self {
             Kind::Eeprom512 => 1,
-            Kind::Eeprom8K | Kind::Eeprom64K => 2,
+            Kind::Eeprom8K | Kind::Eeprom64K | Kind::Fram32K => 2,
             _ => 3,
         }
     }
 
+    /// Writes wrap within a page; the FRAM has none.
     fn page(self) -> u32 {
         match self {
             Kind::Eeprom512 => 16,
             Kind::Eeprom8K => 32,
             Kind::Eeprom64K => 128,
+            Kind::Fram32K => 0x8000,
             _ => 256,
         }
     }
 
-    fn size(self) -> usize {
+    /// The chip's size, or the smallest Flash chip's.
+    pub fn size(self) -> usize {
         match self {
             Kind::Eeprom512 => 512,
             Kind::Eeprom8K => 0x2000,
             Kind::Eeprom64K => 0x1_0000,
+            Kind::Fram32K => 0x8000,
+            Kind::Eeprom128K => 0x2_0000,
             Kind::Flash => 0x4_0000,
             Kind::Unknown => 0,
         }
@@ -55,9 +66,32 @@ impl Kind {
             0 => Kind::Unknown,
             1..=512 => Kind::Eeprom512,
             513..=0x2000 => Kind::Eeprom8K,
-            0x2001..=0x1_0000 => Kind::Eeprom64K,
+            0x2001..=0x8000 => Kind::Fram32K,
+            0x8001..=0x1_0000 => Kind::Eeprom64K,
+            0x1_0001..=0x2_0000 => Kind::Eeprom128K,
             _ => Kind::Flash,
         }
+    }
+
+    /// The names the command line and the settings use, with the chip size.
+    pub const NAMES: &[(&str, Kind, usize)] = &[
+        ("eeprom4k", Kind::Eeprom512, 512),
+        ("eeprom64k", Kind::Eeprom8K, 0x2000),
+        ("eeprom512k", Kind::Eeprom64K, 0x1_0000),
+        ("fram256k", Kind::Fram32K, 0x8000),
+        ("eeprom1m", Kind::Eeprom128K, 0x2_0000),
+        ("flash2m", Kind::Flash, 0x4_0000),
+        ("flash4m", Kind::Flash, 0x8_0000),
+        ("flash8m", Kind::Flash, 0x10_0000),
+        ("flash16m", Kind::Flash, 0x20_0000),
+        ("flash32m", Kind::Flash, 0x40_0000),
+        ("flash64m", Kind::Flash, 0x80_0000),
+    ];
+
+    /// A chip by name (`eeprom4k`, `eeprom64k`, `eeprom512k`, `fram256k`,
+    /// `eeprom1m`, `flash2m` … `flash64m`), with its size.
+    pub fn parse(name: &str) -> Option<(Kind, usize)> {
+        Self::NAMES.iter().find(|(n, _, _)| *n == name).map(|&(_, kind, size)| (kind, size))
     }
 }
 
@@ -65,6 +99,9 @@ impl Kind {
 pub struct Backup {
     pub kind: Kind,
     data: Vec<u8>,
+    /// The size is known for sure (a database entry or the user's choice):
+    /// a Flash chip then wraps instead of growing.
+    size_fixed: bool,
     #[serde(skip)]
     dirty: bool,
     ir: bool,
@@ -85,6 +122,7 @@ impl Backup {
         Self {
             kind: Kind::Unknown,
             data: Vec::new(),
+            size_fixed: false,
             dirty: false,
             ir,
             pos: 0,
@@ -97,17 +135,30 @@ impl Backup {
         }
     }
 
-    /// A save file: its size says what chip it is.
+    /// A save file. Its size says what chip it is, unless the chip is
+    /// already known: the file then fills what it can of it.
     pub fn load(&mut self, data: &[u8]) {
-        self.kind = Kind::from_size(data.len());
         if self.kind == Kind::Unknown {
-            self.data.clear();
-            return;
+            self.kind = Kind::from_size(data.len());
+            if self.kind == Kind::Unknown {
+                self.data.clear();
+                return;
+            }
+            let size = self.kind.size().max(data.len().next_power_of_two());
+            self.data = vec![0xFF; size];
         }
-        let size = self.kind.size().max(data.len().next_power_of_two());
-        self.data = vec![0xFF; size];
-        self.data[..data.len()].copy_from_slice(data);
+        let n = data.len().min(self.data.len());
+        self.data[..n].copy_from_slice(&data[..n]);
         self.dirty = false;
+    }
+
+    /// The chip a database or the user names, of `size` bytes, blank.
+    pub fn set_kind_sized(&mut self, kind: Kind, size: usize) {
+        self.kind = kind;
+        self.data = vec![0xFF; size.max(1)];
+        self.size_fixed = true;
+        self.dirty = false;
+        self.pending.clear();
     }
 
     /// The chip's contents, once it is known what chip there is.
@@ -225,7 +276,7 @@ impl Backup {
     /// Flash chips come in sizes up to 8 MB: the data grows to cover the
     /// addresses a game uses.
     fn grow_to(&mut self, addr: u32) {
-        if self.kind == Kind::Flash && addr as usize >= self.data.len() {
+        if self.kind == Kind::Flash && !self.size_fixed && addr as usize >= self.data.len() {
             let size = (addr as usize + 1).next_power_of_two().clamp(0x4_0000, 0x80_0000);
             self.data.resize(size, 0xFF);
         }
@@ -261,6 +312,7 @@ impl Backup {
     fn set_kind(&mut self, kind: Kind) {
         self.kind = kind;
         self.data = vec![0xFF; kind.size()];
+        self.size_fixed = false;
         self.dirty = true;
     }
 
@@ -372,5 +424,48 @@ mod tests {
         assert_eq!(b.kind, Kind::Eeprom8K);
         assert_eq!(command(&mut b, &[0x00, 0x03, 0x00, 0x20, 0x00])[4], 0x5A);
         assert_eq!(command(&mut b, &[0x08, 0x00])[1], 0xAA);
+    }
+
+    #[test]
+    fn a_named_chip_starts_blank_and_a_fixed_flash_wraps() {
+        let mut b = Backup::new(false);
+        b.set_kind_sized(Kind::Flash, 0x4_0000);
+        assert_eq!(b.data().unwrap().len(), 0x4_0000);
+        assert!(!b.take_dirty(), "nothing to keep yet");
+        // A read past the end wraps instead of growing the chip.
+        command(&mut b, &[0x03, 0x04, 0x00, 0x00, 0x00]);
+        assert_eq!(b.data().unwrap().len(), 0x4_0000);
+        // A save file of another size fills what it can.
+        b.load(&vec![0x11; 0x2000]);
+        assert_eq!(b.kind, Kind::Flash);
+        assert_eq!(b.data().unwrap().len(), 0x4_0000);
+        assert_eq!(b.data().unwrap()[0x1FFF], 0x11);
+        assert_eq!(b.data().unwrap()[0x2000], 0xFF);
+    }
+
+    #[test]
+    fn fram_writes_any_length_and_the_large_eeprom_takes_three_address_bytes() {
+        let mut b = Backup::new(false);
+        b.set_kind_sized(Kind::Fram32K, 0x8000);
+        command(&mut b, &[0x06]);
+        let mut write = vec![0x02, 0x7F, 0xF0];
+        write.extend((0..40).map(|i| i as u8));
+        command(&mut b, &write);
+        // No page boundary: the write runs to the chip's end and round.
+        let bytes = |from: u8, to: u8| (from..to).collect::<Vec<u8>>();
+        assert_eq!(b.data().unwrap()[0x7FF0..0x8000], bytes(0, 16)[..]);
+        assert_eq!(b.data().unwrap()[..24], bytes(16, 40)[..]);
+        let mut b = Backup::new(false);
+        b.set_kind_sized(Kind::Eeprom128K, 0x2_0000);
+        command(&mut b, &[0x06]);
+        command(&mut b, &[0x02, 0x01, 0xFF, 0x00, 0x0F]);
+        assert_eq!(b.data().unwrap()[0x1FF00], 0x0F);
+        // Writing again replaces: no erase needed, unlike Flash.
+        command(&mut b, &[0x06]);
+        command(&mut b, &[0x02, 0x01, 0xFF, 0x00, 0xF0]);
+        assert_eq!(b.data().unwrap()[0x1FF00], 0xF0);
+        assert_eq!(command(&mut b, &[0x03, 0x01, 0xFF, 0x00, 0x00])[4], 0xF0);
+        assert_eq!(Kind::parse("eeprom1m"), Some((Kind::Eeprom128K, 0x2_0000)));
+        assert_eq!(Kind::parse("sram"), None);
     }
 }

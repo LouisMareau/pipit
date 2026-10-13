@@ -1,6 +1,6 @@
 // UI-thread handle on the emulator worker: a small typed event emitter.
 
-import type { FromWorker, LinkLoad, Slot2Load, System, ToWorker } from "../types";
+import type { DsUser, FromWorker, LinkLoad, Slot2Load, System, ToWorker } from "../types";
 
 type Handlers = {
   frame: (
@@ -16,6 +16,10 @@ type Handlers = {
   save: (data: ArrayBuffer) => void;
   /** The GBA cartridge in the DS's slot changed its save memory. */
   slot2Save: (data: ArrayBuffer) => void;
+  /** A DS firmware image to keep. */
+  firmware: (data: ArrayBuffer) => void;
+  /** The answer to `requestFirmwareUser`. */
+  firmwareUser: (user: DsUser) => void;
   state: (slot: number, data: ArrayBuffer) => void;
   hash: (frame: number, hash: number) => void;
   error: (message: string) => void;
@@ -42,6 +46,12 @@ export class EmulatorClient {
           break;
         case "slot2Save":
           this.handlers.slot2Save?.(msg.data);
+          break;
+        case "firmware":
+          this.handlers.firmware?.(msg.data);
+          break;
+        case "firmwareUser":
+          this.handlers.firmwareUser?.(msg.user);
           break;
         case "state":
           this.handlers.state?.(msg.slot, msg.data);
@@ -77,8 +87,25 @@ export class EmulatorClient {
     link?: LinkLoad,
     unixSeconds = Math.floor(Date.now() / 1000),
     slot2?: Slot2Load,
+    firmware?: ArrayBuffer | null,
+    saveType?: string,
   ) {
-    this.send({ type: "load", rom, save, bios, unixSeconds, system, link, slot2 }, [rom]);
+    this.send({ type: "load", rom, save, bios, unixSeconds, system, link, slot2, firmware, saveType }, [rom]);
+  }
+
+  /** Names the DS card's save chip while the game runs. */
+  setSaveType(name: string) {
+    this.send({ type: "saveType", name });
+  }
+
+  /** Asks what user settings a DS firmware image holds; the `firmwareUser` handler gets them. */
+  requestFirmwareUser(image: ArrayBuffer | null) {
+    this.send({ type: "firmwareUser", image });
+  }
+
+  /** Writes user settings into a DS firmware image; the `firmware` handler gets the image. */
+  setFirmwareUser(image: ArrayBuffer | null, user: DsUser) {
+    this.send({ type: "setFirmwareUser", image, user });
   }
 
   /** Changes what is in the DS's GBA slot while the game runs. */

@@ -22,7 +22,9 @@ data frame, then a host command with its reply and acknowledgement), and `pipit 
 a.nds b.nds --frames 120 --check-rollback 30` runs a pair in lockstep and proves their
 states restore exactly. The GBA slot is covered by `crates/nds/tests/slot2.rs`: a
 cartridge's header and Flash chip, which CPU owns the slot, the Rumble Pak, an
-empty slot, and a save state keeping the cartridge.
+empty slot, and a save state keeping the cartridge. The save chips' protocols,
+the games table and the firmware's user settings have unit tests in
+`backup.rs`, `savedb.rs` and `firmware.rs`.
 
 Run everything with:
 
