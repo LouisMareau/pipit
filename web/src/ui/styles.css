@@ -1678,3 +1678,34 @@ body[data-chrome="drawer"] .toast {
 .transfer-dialog .row > span {
   flex: 1;
 }
+
+/* Holding a game to send it: a ring around the entry fills clockwise, as
+   the controller toggle's does. */
+.rom {
+  position: relative;
+  --hold: 0;
+}
+
+.rom::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 3px;
+  background: conic-gradient(var(--accent) calc(var(--hold) * 1turn), transparent 0);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.rom.holding::before {
+  opacity: 1;
+}

@@ -18,6 +18,9 @@ const SYSTEMS: { id: System; name: string; accept: string; files: string }[] = [
   { id: "nds", name: "DS", accept: ".nds,application/octet-stream", files: ".nds" },
 ];
 
+/** How long a game is held before it is sent. */
+const HOLD_MS = 600;
+
 export class Library {
   readonly element: HTMLDivElement;
   onPlay: (entry: RomEntry) => void = () => {};
@@ -169,15 +172,19 @@ export class Library {
       `${entry.title || "Untitled"} · ${entry.gameCode || "????"} · ${(entry.size / 1048576).toFixed(1)} MB`;
     const main = item.querySelector<HTMLButtonElement>(".rom-main")!;
     main.title = "Play; hold to send to another device";
-    // A long press (or a right click) sends the game; the click that follows a hold is not a play.
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    // A long press (or a right click) sends the game, with a ring around the
+    // entry filling as the controller toggle's does; the click that follows a
+    // completed hold is not a play.
+    let frame: number | null = null;
     let fired = false;
-    const clear = () => {
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
+    const stop = () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = null;
+      item.classList.remove("holding");
+      item.style.setProperty("--hold", "0");
     };
     const hold = () => {
-      clear();
+      stop();
       if (fired) return;
       fired = true;
       this.onHold(entry);
@@ -185,10 +192,21 @@ export class Library {
     main.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
       fired = false;
-      clear();
-      timer = setTimeout(hold, 550);
+      stop();
+      const start = performance.now();
+      item.classList.add("holding");
+      const tick = () => {
+        const progress = Math.min(1, (performance.now() - start) / HOLD_MS);
+        item.style.setProperty("--hold", String(progress));
+        if (progress >= 1) {
+          hold();
+          return;
+        }
+        frame = requestAnimationFrame(tick);
+      };
+      frame = requestAnimationFrame(tick);
     });
-    for (const type of ["pointerup", "pointercancel", "pointerleave"]) main.addEventListener(type, clear);
+    for (const type of ["pointerup", "pointercancel", "pointerleave"]) main.addEventListener(type, stop);
     main.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       hold();

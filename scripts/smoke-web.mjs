@@ -558,9 +558,9 @@ const bigItem = "Array.from(document.querySelectorAll('.rom-list[data-system=gba
 const xferId = JSON.stringify(xferEntry.id);
 await evaluate(`window.pipit.putSave(${xferId}, new Uint8Array(4096).fill(0x5A).buffer)`);
 await sleep(300);
-await evaluate(`(async () => { const main = ${bigItem}.querySelector('.rom-main'); const ev = (type) => main.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, pointerType: 'touch', isPrimary: true })); ev('pointerdown'); await new Promise((r) => setTimeout(r, 700)); ev('pointerup'); main.click(); return true; })()`);
+const xferRing = await evaluate(`(async () => { const li = ${bigItem}; const main = li.querySelector('.rom-main'); const ev = (type) => main.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, pointerType: 'touch', isPrimary: true })); ev('pointerdown'); await new Promise((r) => setTimeout(r, 300)); const midway = { holding: li.classList.contains('holding'), hold: Number(li.style.getPropertyValue('--hold')) }; await new Promise((r) => setTimeout(r, 500)); ev('pointerup'); main.click(); return { ...midway, after: li.classList.contains('holding') }; })()`);
 await sleep(400);
-const xfer = { dialog: await evaluate("(() => { const d = document.querySelector('.transfer-dialog'); return { open: !d.closest('.modal-backdrop').classList.contains('hidden'), game: d.querySelector('.transfer-game').textContent, saveChecked: d.querySelector('[data-item=save]').checked, saveInfo: d.querySelector('.transfer-save-info').textContent, playing: !document.querySelector('.player').classList.contains('hidden') }; })()") };
+const xfer = { ring: xferRing, dialog: await evaluate("(() => { const d = document.querySelector('.transfer-dialog'); return { open: !d.closest('.modal-backdrop').classList.contains('hidden'), game: d.querySelector('.transfer-game').textContent, saveChecked: d.querySelector('[data-item=save]').checked, saveInfo: d.querySelector('.transfer-save-info').textContent, playing: !document.querySelector('.player').classList.contains('hidden') }; })()") };
 await evaluate("document.querySelector('.transfer-dialog [data-action=start]').click(); true");
 await sleep(1500);
 xfer.code = await evaluate("document.querySelector('.transfer-dialog .link-code').textContent");
@@ -792,6 +792,7 @@ if (
   !phone.landscape.pillsHugScreen ||
   !(xfer.dialog.open && !xfer.dialog.playing && xfer.dialog.game === "big" && xfer.dialog.saveChecked && /4 KB/.test(xfer.dialog.saveInfo) && xfer.code.length === 8 && xfer.qr && xfer.removed) ||
   xfer.back.name !== "big" ||
+  !(xfer.ring.holding && xfer.ring.hold > 0.2 && xfer.ring.hold < 0.8 && !xfer.ring.after) ||
   xfer.typed !== "zx" ||
   !(xfer.words.host.split(" ").length === 3 && xfer.words.host === xfer.words.guest) ||
   !(xfer.offer.choices.includes("add*") && xfer.offer.save === true && /none here yet/.test(xfer.offer.saveLabel)) ||
