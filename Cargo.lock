@@ -304,6 +304,7 @@ dependencies = [
  "bincode",
  "pipit-arm",
  "pipit-common",
+ "pipit-gba",
  "serde",
 ]
 

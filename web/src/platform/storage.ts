@@ -77,6 +77,12 @@ export async function touchRom(id: string) {
   if (entry) await tx("roms", "readwrite", (s) => s.put({ ...entry, lastPlayed: Date.now() }));
 }
 
+/** Changes some of a library entry's fields. */
+export async function updateRom(id: string, patch: Partial<RomEntry>) {
+  const entry = await tx<RomEntry | undefined>("roms", "readonly", (s) => s.get(id));
+  if (entry) await tx("roms", "readwrite", (s) => s.put({ ...entry, ...patch }));
+}
+
 export async function deleteRom(id: string) {
   await tx("roms", "readwrite", (s) => s.delete(id));
   await tx("romData", "readwrite", (s) => s.delete(id));

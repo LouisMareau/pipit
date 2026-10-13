@@ -1596,3 +1596,8 @@ body[data-chrome="drawer"] .toast {
 .player[data-system="nds"] .abpad .pad-dot {
   display: none;
 }
+
+/* The GBA slot is the DS's. */
+.player:not([data-system="nds"]) .ds-only {
+  display: none;
+}

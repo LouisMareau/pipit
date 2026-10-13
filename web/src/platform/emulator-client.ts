@@ -1,6 +1,6 @@
 // UI-thread handle on the emulator worker: a small typed event emitter.
 
-import type { FromWorker, LinkLoad, System, ToWorker } from "../types";
+import type { FromWorker, LinkLoad, Slot2Load, System, ToWorker } from "../types";
 
 type Handlers = {
   frame: (
@@ -10,9 +10,12 @@ type Handlers = {
     maxGapMs: number,
     sides?: { player: number; pixels: ArrayBuffer }[],
     activity?: number,
+    rumble?: boolean,
   ) => void;
   loaded: (title: string, gameCode: string, width: number, height: number) => void;
   save: (data: ArrayBuffer) => void;
+  /** The GBA cartridge in the DS's slot changed its save memory. */
+  slot2Save: (data: ArrayBuffer) => void;
   state: (slot: number, data: ArrayBuffer) => void;
   hash: (frame: number, hash: number) => void;
   error: (message: string) => void;
@@ -29,13 +32,16 @@ export class EmulatorClient {
       const msg = event.data;
       switch (msg.type) {
         case "frame":
-          this.handlers.frame?.(msg.pixels, msg.audio, msg.fps, msg.maxGapMs, msg.sides, msg.activity);
+          this.handlers.frame?.(msg.pixels, msg.audio, msg.fps, msg.maxGapMs, msg.sides, msg.activity, msg.rumble);
           break;
         case "loaded":
           this.handlers.loaded?.(msg.title, msg.gameCode, msg.width, msg.height);
           break;
         case "save":
           this.handlers.save?.(msg.data);
+          break;
+        case "slot2Save":
+          this.handlers.slot2Save?.(msg.data);
           break;
         case "state":
           this.handlers.state?.(msg.slot, msg.data);
@@ -70,8 +76,14 @@ export class EmulatorClient {
     system: System = "gba",
     link?: LinkLoad,
     unixSeconds = Math.floor(Date.now() / 1000),
+    slot2?: Slot2Load,
   ) {
-    this.send({ type: "load", rom, save, bios, unixSeconds, system, link }, [rom]);
+    this.send({ type: "load", rom, save, bios, unixSeconds, system, link, slot2 }, [rom]);
+  }
+
+  /** Changes what is in the DS's GBA slot while the game runs. */
+  setSlot2(slot2: Slot2Load) {
+    this.send({ type: "slot2", slot2 }, slot2.rom ? [slot2.rom] : []);
   }
 
   run() {

@@ -65,7 +65,7 @@ impl Cartridge {
     }
 
     /// Moves the ROM out of `other` (restoring a save state keeps the loaded ROM).
-    pub(crate) fn take_rom_from(&mut self, other: &mut Cartridge) {
+    pub fn take_rom_from(&mut self, other: &mut Cartridge) {
         self.rom = std::mem::take(&mut other.rom);
     }
 

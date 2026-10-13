@@ -19,6 +19,7 @@ pub mod math;
 pub mod memory;
 pub mod rtc;
 pub mod scheduler;
+pub mod slot2;
 pub mod sound;
 pub mod spi;
 pub mod timers;
@@ -28,6 +29,7 @@ pub mod wifi;
 pub use link::Link;
 pub use memory::Keys;
 pub use pipit_common::snapshot::StateError;
+pub use slot2::Slot2;
 pub use video::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
 use memory::{run_dma, Bus, View7, View9, ARM7, ARM9, SLICE};
@@ -35,7 +37,7 @@ use pipit_arm::{mode, Arch, Bus as _, Cpu};
 use pipit_common::snapshot;
 use serde::{Deserialize, Serialize};
 
-const STATE_FORMAT: snapshot::Format = snapshot::Format { magic: *b"PIPD", version: 1 };
+const STATE_FORMAT: snapshot::Format = snapshot::Format { magic: *b"PIPD", version: 2 };
 
 /// A whole Nintendo DS.
 #[derive(Serialize, Deserialize)]
@@ -290,6 +292,9 @@ impl Nds {
     pub fn set_time(&mut self, unix_seconds: i64) {
         let now = self.bus.time[ARM7];
         self.bus.rtc.set_time(unix_seconds, now);
+        if let Slot2::Cartridge(cart) = &mut self.bus.slot2 {
+            cart.set_time(unix_seconds);
+        }
     }
 
     /// The card's save memory, once the game has shown what chip it has.
@@ -305,6 +310,34 @@ impl Nds {
     /// Whether the save memory changed since the last call.
     pub fn take_save_dirty(&mut self) -> bool {
         self.bus.cart.backup.take_dirty()
+    }
+
+    /// Puts a GBA cartridge, the Rumble Pak or nothing in the GBA slot.
+    pub fn set_slot2(&mut self, slot2: Slot2) {
+        self.bus.slot2 = slot2;
+    }
+
+    pub fn slot2(&self) -> &Slot2 {
+        &self.bus.slot2
+    }
+
+    /// The GBA cartridge's save memory, when one is in the slot.
+    pub fn slot2_save_data(&self) -> Option<&[u8]> {
+        self.bus.slot2.save_data()
+    }
+
+    pub fn load_slot2_save_data(&mut self, data: &[u8]) {
+        self.bus.slot2.load_save_data(data);
+    }
+
+    /// Whether the GBA cartridge's save memory changed since the last call.
+    pub fn take_slot2_save_dirty(&mut self) -> bool {
+        self.bus.slot2.take_save_dirty()
+    }
+
+    /// Whether the Rumble Pak's actuator moved since the last call.
+    pub fn take_rumble(&mut self) -> bool {
+        self.bus.slot2.take_rumble()
     }
 
     /// The game asked the power management chip to switch the console off.

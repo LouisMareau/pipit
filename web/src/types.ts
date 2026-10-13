@@ -40,6 +40,13 @@ export interface LinkLoad {
   wireless?: boolean;
 }
 
+/** What goes in a DS's GBA slot: nothing, the Rumble Pak, or a GBA cartridge with its save. */
+export interface Slot2Load {
+  kind: "empty" | "rumble" | "cartridge";
+  rom?: ArrayBuffer;
+  save?: ArrayBuffer | null;
+}
+
 /** Which console a game is for; `.gb` and `.gbc` files are Game Boy games, `.nds` DS games. */
 export type System = "gba" | "gbc" | "nds";
 
@@ -54,6 +61,8 @@ export type ToWorker =
       unixSeconds: number;
       system: System;
       link?: LinkLoad;
+      /** For a DS: what is in its GBA slot (nothing when absent). */
+      slot2?: Slot2Load;
     }
   | { type: "run" }
   | { type: "pause" }
@@ -79,6 +88,8 @@ export type ToWorker =
   | { type: "keys"; keys: number }
   /** The pen on the DS's bottom screen (x 0–255, y 0–191); negative lifts it. */
   | { type: "touch"; x: number; y: number }
+  /** Changes what is in the DS's GBA slot while it runs. */
+  | { type: "slot2"; slot2: Slot2Load }
   | { type: "fastForward"; enabled: boolean }
   | { type: "colors"; mode: number; strength: number }
   | { type: "requestSave" }
@@ -99,10 +110,14 @@ export type FromWorker =
       sides?: { player: number; pixels: ArrayBuffer }[];
       /** On a link: how much the in-game link has done so far (see `Emulator.link_activity`). */
       activity?: number;
+      /** On a DS: the Rumble Pak moved during this frame. */
+      rumble?: boolean;
     }
   /** On a link: a digest of every console's state after `frame` frames (see `netplay.ts`). */
   | { type: "hash"; frame: number; hash: number }
   | { type: "save"; data: ArrayBuffer }
+  /** The GBA cartridge in a DS's slot changed its save memory. */
+  | { type: "slot2Save"; data: ArrayBuffer }
   | { type: "state"; slot: number; data: ArrayBuffer }
   | { type: "error"; message: string };
 
@@ -116,6 +131,8 @@ export interface RomEntry {
   size: number;
   addedAt: number;
   lastPlayed: number;
+  /** A DS game's GBA slot: "empty", "rumble" (the Rumble Pak, the default) or a GBA game's id. */
+  slot2?: string;
 }
 
 /** Keys in the order the remapping screens list them (X and Y are the DS's). */

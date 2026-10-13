@@ -9,7 +9,7 @@
 
 use pipit_gba::{Gba, Keys};
 use pipit_gbc::Gbc;
-use pipit_nds::Nds;
+use pipit_nds::{Nds, Slot2};
 use wasm_bindgen::prelude::*;
 
 /// `system` values the front-end passes: 0 is a Game Boy Advance.
@@ -237,6 +237,46 @@ impl Emulator {
         if let Core::Nds(link) = &mut self.core {
             let touch = (x >= 0 && y >= 0).then(|| (x.min(255) as u8, y.min(191) as u8));
             link.nodes_mut()[self.local].set_touch(touch);
+        }
+    }
+
+    /// What is in the GBA slot of every DS of the link: 0 nothing, 1 the
+    /// Rumble Pak, 2 the GBA cartridge `rom` with its `save`.
+    pub fn set_slot2(&mut self, kind: u8, rom: Option<Vec<u8>>, save: Option<Vec<u8>>) {
+        let Core::Nds(link) = &mut self.core else { return };
+        for node in link.nodes_mut() {
+            let mut slot = match kind {
+                1 => Slot2::rumble_pak(),
+                2 => Slot2::cartridge(rom.clone().unwrap_or_default()),
+                _ => Slot2::Empty,
+            };
+            if let Some(save) = &save {
+                slot.load_save_data(save);
+            }
+            node.set_slot2(slot);
+        }
+    }
+
+    /// The save memory of the GBA cartridge in this player's DS, if any.
+    pub fn slot2_save_data(&self) -> Option<Vec<u8>> {
+        match &self.core {
+            Core::Nds(link) => link.nodes()[self.local].slot2_save_data().map(<[u8]>::to_vec),
+            _ => None,
+        }
+    }
+
+    pub fn take_slot2_save_dirty(&mut self) -> bool {
+        match &mut self.core {
+            Core::Nds(link) => link.nodes_mut()[self.local].take_slot2_save_dirty(),
+            _ => false,
+        }
+    }
+
+    /// Whether the Rumble Pak in this player's DS moved since the last call.
+    pub fn take_rumble(&mut self) -> bool {
+        match &mut self.core {
+            Core::Nds(link) => link.nodes_mut()[self.local].take_rumble(),
+            _ => false,
         }
     }
 

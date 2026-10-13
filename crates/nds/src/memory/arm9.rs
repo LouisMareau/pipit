@@ -186,7 +186,7 @@ impl Bus {
                 self.video.vram.read8(region, offset)
             }
             0x07 => self.video.oam[(addr & 0x7FF) as usize],
-            0x08..=0x0A => 0xFF,
+            0x08..=0x0A => self.slot2_read8(ARM9, addr),
             0xFF => self.bios9[(addr & 0xFFF) as usize],
             _ => 0,
         }
@@ -227,7 +227,7 @@ impl Bus {
                 let i = (addr & 0x7FF) as usize;
                 u16::from_le_bytes([self.video.oam[i], self.video.oam[i + 1]])
             }
-            0x08..=0x0A => 0xFFFF,
+            0x08..=0x0A => self.slot2_read16(ARM9, addr),
             0xFF => {
                 let i = (addr & 0xFFF) as usize;
                 u16::from_le_bytes([self.bios9[i], self.bios9[i + 1]])
@@ -271,7 +271,7 @@ impl Bus {
                 let i = (addr & 0x7FF) as usize;
                 u32::from_le_bytes(self.video.oam[i..i + 4].try_into().unwrap())
             }
-            0x08..=0x0A => 0xFFFF_FFFF,
+            0x08..=0x0A => self.slot2_read32(ARM9, addr),
             0xFF => {
                 let i = (addr & 0xFFF) as usize;
                 u32::from_le_bytes(self.bios9[i..i + 4].try_into().unwrap())
@@ -304,6 +304,7 @@ impl Bus {
                 let shift = (reg & 1) * 8;
                 self.io_write16(ARM9, reg & !1, u16::from(value) << shift, 0xFF << shift);
             }
+            0x08..=0x0A => self.slot2_write8(ARM9, addr, value),
             // Palettes, VRAM and OAM take no byte writes.
             _ => {}
         }
@@ -347,6 +348,7 @@ impl Bus {
                 let i = (addr & 0x7FF) as usize;
                 self.video.oam[i..i + 2].copy_from_slice(&value.to_le_bytes());
             }
+            0x08..=0x0A => self.slot2_write16(ARM9, addr, value),
             _ => {}
         }
     }
@@ -389,6 +391,7 @@ impl Bus {
                 let i = (addr & 0x7FF) as usize;
                 self.video.oam[i..i + 4].copy_from_slice(&value.to_le_bytes());
             }
+            0x08..=0x0A => self.slot2_write32(ARM9, addr, value),
             _ => {}
         }
     }

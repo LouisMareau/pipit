@@ -10,7 +10,7 @@ import type { Pending, Role, SessionStart } from "../platform/netplay";
 import { connect, generateCode, hashRom, LinkSession, listen } from "../platform/netplay";
 import { FramePacer } from "../platform/pacer";
 import * as storage from "../platform/storage";
-import type { ControllerMapping, ResolvedTouchLayout, RomEntry, Settings, TouchLayout } from "../types";
+import type { ControllerMapping, ResolvedTouchLayout, RomEntry, Settings, Slot2Load, TouchLayout } from "../types";
 import { DEFAULT_CONNECTION, DEFAULT_KEYBOARD, DEFAULT_MAPPING, Key, PEN_DOWN, PEN_INCLUDED, STATE_SLOTS } from "../types";
 import { ConfirmDialog } from "./confirm-dialog";
 import { ControllerSettings } from "./controller-settings";
@@ -94,6 +94,8 @@ export class App {
   private heldKeys = 0;
   /** The pen on a DS's bottom screen, while it is down. */
   private pen: { x: number; y: number } | null = null;
+  /** The GBA game whose cartridge is in the DS's GBA slot, for writing its save back. */
+  private slot2RomId: string | null = null;
   private stalledTicks = 0;
   /** Test hooks (see scripts/): scripted keys on a link, and a copy of the save. */
   private hooks: TestHooks = { keyScript: null, save: () => this.copyOfSave(), linkLog: () => linkLogText() };
@@ -166,6 +168,8 @@ export class App {
         <button class="btn hidden" data-action="copy-link-log" title="What the session did, for bug reports; the browser console (F12) shows it too">Copy session log</button>
         <label class="row link-view hidden"><span>Watch</span><select data-view></select></label>
         <label class="row link-side"><input type="checkbox" data-setting="sideScreens" /><span>Show the other players&#8217; screens beside yours</span></label>
+        <h4 class="ds-only">GBA slot</h4>
+        <label class="row ds-only"><span>Inserted</span><select data-slot2></select></label>
         <h4>Keyboard</h4>
         <button class="btn" data-action="keyboard">Change key bindings…</button>
         <h4>Battery save</h4>
@@ -243,6 +247,47 @@ export class App {
     await this.library.refresh();
   }
 
+  /** What goes in a DS game's GBA slot, from its library entry (the Rumble Pak unless chosen otherwise). */
+  private async slot2Load(entry: RomEntry): Promise<Slot2Load | undefined> {
+    this.slot2RomId = null;
+    if (entry.system !== "nds") return undefined;
+    const choice = entry.slot2 ?? "rumble";
+    if (choice === "empty") return { kind: "empty" };
+    if (choice === "rumble") return { kind: "rumble" };
+    const rom = await storage.getRomData(choice);
+    if (!rom) return { kind: "empty" };
+    this.slot2RomId = choice;
+    return { kind: "cartridge", rom, save: await storage.getSave(choice) };
+  }
+
+  /** Lists the library's GBA games in the slot's select, with this game's choice selected. */
+  private async refreshSlot2Options(entry: RomEntry) {
+    if (entry.system !== "nds") return;
+    const select = this.player.querySelector<HTMLSelectElement>("[data-slot2]")!;
+    const games = (await storage.listRoms()).filter((r) => (r.system ?? "gba") === "gba");
+    const option = (value: string, label: string) => Object.assign(document.createElement("option"), { value, textContent: label });
+    select.replaceChildren(option("rumble", "Rumble Pak"), option("empty", "Nothing"), ...games.map((g) => option(g.id, g.name)));
+    const choice = entry.slot2 ?? "rumble";
+    select.value = choice === "rumble" || choice === "empty" || games.some((g) => g.id === choice) ? choice : "empty";
+  }
+
+  /** The player changed what is in the GBA slot: remembered for this game, and inserted now. */
+  private async changeSlot2(choice: string) {
+    const entry = this.current;
+    if (!entry || entry.system !== "nds") return;
+    entry.slot2 = choice;
+    await storage.updateRom(entry.id, { slot2: choice });
+    if (this.session) {
+      this.toast("The GBA slot stays empty while playing together");
+      return;
+    }
+    const load = await this.slot2Load(entry);
+    if (!load) return;
+    this.emulator.setSlot2(load);
+    const name = this.player.querySelector<HTMLSelectElement>("[data-slot2]")!.selectedOptions[0]?.textContent ?? "The cartridge";
+    this.toast(load.kind === "empty" ? "GBA slot emptied" : load.kind === "rumble" ? "Rumble Pak inserted" : `${name} inserted in the GBA slot`);
+  }
+
   private async play(entry: RomEntry) {
     const rom = await storage.getRomData(entry.id);
     if (!rom) return;
@@ -257,7 +302,9 @@ export class App {
     this.screen.fit();
     this.audio.clear();
     this.player.dataset["system"] = entry.system ?? "gba";
-    this.emulator.load(rom, save, null, entry.system ?? "gba");
+    const slot2 = await this.slot2Load(entry);
+    this.emulator.load(rom, save, null, entry.system ?? "gba", undefined, undefined, slot2);
+    await this.refreshSlot2Options(entry);
     await storage.touchRom(entry.id);
     await this.refreshStateSlots();
   }
@@ -310,8 +357,9 @@ export class App {
     this.emulator.on("hash", (frame, hash) => this.session?.reportHash(frame, hash));
     const fpsLabel = this.player.querySelector<HTMLElement>(".toolbar-fps")!;
     let lastFpsText = "";
-    this.emulator.on("frame", (pixels, audio, fps, maxGapMs, sides, activity) => {
+    this.emulator.on("frame", (pixels, audio, fps, maxGapMs, sides, activity, rumble) => {
       this.logLinkStatus(fps, maxGapMs, activity);
+      this.input.setRumble(rumble === true);
       this.screen.draw(pixels);
       this.emulator.returnFrame(pixels);
       for (const side of sides ?? []) {
@@ -327,6 +375,9 @@ export class App {
       // Worst frame-to-frame gap of the last second, for spotting stutter.
       fpsLabel.dataset["maxGap"] = String(maxGapMs);
       fpsLabel.title = `longest pause between frames in the last second: ${maxGapMs} ms`;
+    });
+    this.emulator.on("slot2Save", (data) => {
+      if (this.slot2RomId) void storage.putSave(this.slot2RomId, data);
     });
     this.emulator.on("save", (data) => {
       this.latestSave = data;
@@ -480,6 +531,9 @@ export class App {
       this.emulator.setView(player);
       this.sideScreens.setPlayers(this.sessionPlayers, player);
       this.toast(player === (this.session?.local ?? 0) ? "Back to your screen" : `Watching player ${player + 1}`, { brief: true });
+    });
+    this.player.querySelector<HTMLSelectElement>("[data-slot2]")!.addEventListener("change", (e) => {
+      void this.changeSlot2((e.target as HTMLSelectElement).value);
     });
     this.linkDialog.onHost = () => void this.startSession("host", generateCode());
     this.linkDialog.onJoin = (code) => void this.startSession("guest", code);
@@ -678,7 +732,9 @@ export class App {
     this.player.querySelector('.menu [data-action="copy-link-log"]')!.classList.remove("hidden");
     this.audio.clear();
     this.stalledTicks = 0;
-    // The worker reports `loaded`, which starts the display loop.
+    // The worker reports `loaded`, which starts the display loop. The GBA
+    // slot stays empty: the other players would need the same cartridge.
+    this.slot2RomId = null;
     this.emulator.load(rom, null, null, this.current?.system ?? "gba", start.link, start.epoch);
     this.sessionPlayers = start.link.players;
     this.sessionWireless = start.link.wireless === true;

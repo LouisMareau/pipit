@@ -2,8 +2,8 @@
 
 A clean, free Game Boy Advance and Game Boy Color emulator that runs in the browser, on your phone and on
 the desktop — from one codebase. A Nintendo DS core is being built on the same foundations and already
-plays games in the browser, 3D included, with the pen on the bottom screen and local wireless between
-the players of a game.
+plays games in the browser, 3D included, with the pen on the bottom screen, local wireless between
+the players of a game, and a GBA game from your library in the GBA slot.
 
 - **Accurate.** A from-scratch ARM7TDMI core, cycle-counted memory bus, scanline video
   and full audio, verified against open test ROM suites. Retail games and custom

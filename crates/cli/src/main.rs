@@ -45,6 +45,13 @@ enum Command {
         /// Optional DS firmware image (a built-in one with default settings otherwise).
         #[arg(long)]
         firmware: Option<PathBuf>,
+        /// For a DS: a GBA cartridge in the GBA slot (a .gba file), or `rumble`
+        /// for the Rumble Pak (its toggles are printed per frame).
+        #[arg(long)]
+        slot2: Option<String>,
+        /// The GBA cartridge's save: loaded before running, written back afterwards.
+        #[arg(long)]
+        slot2_save: Option<PathBuf>,
         /// Load this save file before running and write it back afterwards.
         #[arg(long)]
         save: Option<PathBuf>,
@@ -136,6 +143,8 @@ fn main() -> Result<()> {
             wav,
             bios,
             firmware,
+            slot2,
+            slot2_save,
             save,
             regs,
             trace,
@@ -157,6 +166,21 @@ fn main() -> Result<()> {
                     machine.load_save_data(&data);
                 }
             }
+            if let Some(slot2) = &slot2 {
+                let slot = if slot2 == "rumble" {
+                    pipit_nds::Slot2::rumble_pak()
+                } else {
+                    let gba = fs::read(slot2).with_context(|| format!("reading {slot2}"))?;
+                    let mut slot = pipit_nds::Slot2::cartridge(gba);
+                    if let Some(path) = &slot2_save {
+                        if let Ok(data) = fs::read(path) {
+                            slot.load_save_data(&data);
+                        }
+                    }
+                    slot
+                };
+                machine.set_slot2(slot);
+            }
             let script = keys.as_deref().map(parse_key_script).transpose()?.unwrap_or_default();
             let pen = touch.as_deref().map(parse_touch_script).transpose()?.unwrap_or_default();
             let mut frame = 0u32;
@@ -170,6 +194,9 @@ fn main() -> Result<()> {
                         machine.set_touch(*touch);
                     }
                     machine.run_frame();
+                    if machine.take_rumble() {
+                        eprintln!("frame {}: rumble", *frame);
+                    }
                     if wav.is_some() {
                         audio.extend(machine.drain_audio());
                     }
@@ -218,6 +245,9 @@ fn main() -> Result<()> {
                 println!("wrote {} ({:.1} s)", path.display(), audio.len() as f64 / 2.0 / 32_768.0);
             }
             if let (Some(path), Some(data)) = (save, machine.save_data()) {
+                fs::write(&path, data)?;
+            }
+            if let (Some(path), Some(data)) = (slot2_save, machine.slot2_save_data()) {
                 fs::write(&path, data)?;
             }
         }

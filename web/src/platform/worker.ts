@@ -8,7 +8,7 @@
 // periodic garbage-collection pauses that show up as stutter.)
 
 import init, { Emulator } from "@wasm/pipit_wasm.js";
-import type { FromWorker, LinkLoad, System, ToWorker } from "../types";
+import type { FromWorker, LinkLoad, Slot2Load, System, ToWorker } from "../types";
 
 const SAVE_CHECK_FRAMES = 60;
 /** `system` as the WASM side numbers it. */
@@ -49,7 +49,7 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
   const msg = event.data;
   switch (msg.type) {
     case "load":
-      await load(msg.rom, msg.save, msg.bios, msg.unixSeconds, msg.system, msg.link);
+      await load(msg.rom, msg.save, msg.bios, msg.unixSeconds, msg.system, msg.link, msg.slot2);
       break;
     case "run":
       running = true;
@@ -87,6 +87,9 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
     case "touch":
       // On a link the pen travels with the keys (see `PEN_INCLUDED`): only alone.
       if (!linked) emulator?.set_touch(msg.x, msg.y);
+      break;
+    case "slot2":
+      applySlot2(msg.slot2);
       break;
     case "fastForward":
       if (linked) break;
@@ -134,6 +137,7 @@ async function load(
   unixSeconds: number,
   system: System,
   link?: LinkLoad,
+  slot2?: Slot2Load,
 ) {
   try {
     if (!memory) {
@@ -164,6 +168,7 @@ async function load(
       if (save) emulator.load_save_data(new Uint8Array(save));
     }
     emulator.set_time(unixSeconds);
+    applySlot2(slot2);
     emulator.set_keys(keys);
     emulator.set_color_correction(colorMode, colorStrength);
     frameCounter = 0;
@@ -177,6 +182,13 @@ async function load(
   } catch (error) {
     post({ type: "error", message: `Could not start the game: ${String(error)}` });
   }
+}
+
+/** Puts what the UI chose in the DS's GBA slot (every console of a link alike). */
+function applySlot2(slot2?: Slot2Load) {
+  if (!emulator || !slot2) return;
+  const kind = slot2.kind === "rumble" ? 1 : slot2.kind === "cartridge" ? 2 : 0;
+  emulator.set_slot2(kind, slot2.rom ? new Uint8Array(slot2.rom) : undefined, slot2.save ? new Uint8Array(slot2.save) : undefined);
 }
 
 /** Fast-forward: run as many frames as fit in a few milliseconds, then yield. */
@@ -219,7 +231,10 @@ function step() {
   }
 
   postFrame();
-  if (frameCounter % SAVE_CHECK_FRAMES === 0 && emulator.take_save_dirty()) sendSave();
+  if (frameCounter % SAVE_CHECK_FRAMES === 0) {
+    if (emulator.take_save_dirty()) sendSave();
+    if (emulator.take_slot2_save_dirty()) sendSlot2Save();
+  }
   // No digest while some keys are still guesses: it could be corrected later.
   if (linked && frameCounter % HASH_FRAMES === 0 && states.size === 0) {
     post({ type: "hash", frame: frameCounter, hash: emulator.state_hash() });
@@ -279,7 +294,13 @@ function postFrame() {
     }
   }
   const activity = linked ? emulator.link_activity() : undefined;
-  post({ type: "frame", pixels, audio, fps, maxGapMs, sides, activity }, transfer);
+  const rumble = emulator.take_rumble();
+  post({ type: "frame", pixels, audio, fps, maxGapMs, sides, activity, rumble }, transfer);
+}
+
+function sendSlot2Save() {
+  const data = emulator?.slot2_save_data()?.buffer as ArrayBuffer | undefined;
+  if (data) post({ type: "slot2Save", data }, [data]);
 }
 
 function sendSave() {

@@ -37,7 +37,7 @@ impl Bus {
             }
             0x04 => self.wifi.read8((addr & 0x7FFF) as usize, self.time[ARM7]),
             0x06 => self.video.vram.read8(Region::Arm7, (addr & 0x3_FFFF) as usize),
-            0x08..=0x0A => 0xFF,
+            0x08..=0x0A => self.slot2_read8(ARM7, addr),
             _ => 0,
         }
     }
@@ -61,7 +61,7 @@ impl Bus {
             0x04 if addr & 0x0080_0000 == 0 => self.io_read16(ARM7, addr & 0x00FF_FFFF),
             0x04 => self.wifi.read16((addr & 0x7FFF) as usize, self.time[ARM7]),
             0x06 => self.video.vram.read16(Region::Arm7, (addr & 0x3_FFFF) as usize),
-            0x08..=0x0A => 0xFFFF,
+            0x08..=0x0A => self.slot2_read16(ARM7, addr),
             _ => 0,
         }
     }
@@ -89,7 +89,7 @@ impl Bus {
                     | u32::from(self.wifi.read16(off + 2, now)) << 16
             }
             0x06 => self.video.vram.read32(Region::Arm7, (addr & 0x3_FFFF) as usize),
-            0x08..=0x0A => 0xFFFF_FFFF,
+            0x08..=0x0A => self.slot2_read32(ARM7, addr),
             _ => 0,
         }
     }
@@ -112,6 +112,7 @@ impl Bus {
                 self.wifi.write8((addr & 0x7FFF) as usize, value, now, &mut self.scheduler);
                 self.wifi_irq();
             }
+            0x08..=0x0A => self.slot2_write8(ARM7, addr, value),
             _ => {}
         }
     }
@@ -137,6 +138,7 @@ impl Bus {
                 self.wifi_irq();
             }
             0x06 => self.video.vram.write16(Region::Arm7, (addr & 0x3_FFFF) as usize, value),
+            0x08..=0x0A => self.slot2_write16(ARM7, addr, value),
             _ => {}
         }
     }
@@ -161,6 +163,7 @@ impl Bus {
                 self.wifi_irq();
             }
             0x06 => self.video.vram.write32(Region::Arm7, (addr & 0x3_FFFF) as usize, value),
+            0x08..=0x0A => self.slot2_write32(ARM7, addr, value),
             _ => {}
         }
     }

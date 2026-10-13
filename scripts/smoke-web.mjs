@@ -596,6 +596,20 @@ if (ndsRomArg) {
   nds.inkBefore = inkBefore;
   nds.inkAfter = await bottomInk();
   nds.tapChangedScreen = Math.abs(nds.inkAfter - nds.inkBefore) > inkBefore * 0.2;
+  // The GBA slot: the menu lists the Rumble Pak, nothing, and the library's GBA
+  // games; choosing the GBA game inserts it at once.
+  nds.slot2 = await evaluate(`(() => {
+    const s = document.querySelector('[data-slot2]');
+    const game = Array.from(s.options).find((o) => o.textContent === 'hello');
+    const r = { shown: getComputedStyle(s.closest('.row')).display !== 'none', options: Array.from(s.options).map((o) => o.textContent) };
+    if (game) { s.value = game.value; s.dispatchEvent(new Event('change')); }
+    return r;
+  })()`);
+  await sleep(800);
+  nds.slot2.toast = await evaluate("Array.from(document.querySelectorAll('.toast')).map((t) => t.textContent).join('|')");
+  await evaluate("(() => { const s = document.querySelector('[data-slot2]'); s.value = 'rumble'; s.dispatchEvent(new Event('change')); })()");
+  await sleep(800);
+  nds.slot2.playing = await evaluate("({ fps: document.querySelector('.toolbar-fps').textContent, playing: !document.querySelector('.player').classList.contains('hidden') })");
   console.log(`ds: ${JSON.stringify(nds)}`);
   // Playing together on DSs: a second window opens the same game and joins.
   // Both consoles then run in step within wireless range of each other, and
@@ -708,6 +722,7 @@ if (
   !phone.landscape.pillsSameRow ||
   !phone.landscape.pillsHugScreen ||
   (nds && !(nds.listed === 1 && nds.system === "nds" && nds.width === 256 && nds.height === 384 && nds.xyShown && nds.tapChangedScreen)) ||
+  (nds && !(nds.slot2.shown && nds.slot2.options.length === 3 && /hello inserted in the GBA slot/.test(nds.slot2.toast) && nds.slot2.playing.playing)) ||
   (nds &&
     !(nds.link.modeHidden && nds.link.host.linked && nds.link.guest.linked && nds.link.guest.frame >= 100 && nds.link.tapReachedGuest &&
       nds.link.after.host.linked && nds.link.after.guest.linked && nds.link.after.guest.frame > nds.link.guest.frame)) ||

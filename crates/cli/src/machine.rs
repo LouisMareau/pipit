@@ -150,6 +150,29 @@ impl Machine {
         }
     }
 
+    /// What is in the DS's GBA slot; nothing on other machines.
+    pub fn set_slot2(&mut self, slot2: pipit_nds::Slot2) {
+        if let Machine::Nds(n) = self {
+            n.set_slot2(slot2);
+        }
+    }
+
+    /// The save memory of the GBA cartridge in the DS's slot, if any.
+    pub fn slot2_save_data(&self) -> Option<&[u8]> {
+        match self {
+            Machine::Nds(n) => n.slot2_save_data(),
+            _ => None,
+        }
+    }
+
+    /// Whether the DS's Rumble Pak moved since the last call.
+    pub fn take_rumble(&mut self) -> bool {
+        match self {
+            Machine::Nds(n) => n.take_rumble(),
+            _ => false,
+        }
+    }
+
     pub fn peek(&mut self, addr: u32) -> u8 {
         match self {
             Machine::Gba(g) => g.bus.load8(addr),

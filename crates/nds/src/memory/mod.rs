@@ -21,6 +21,7 @@ use crate::irq::{Interrupt, Irq};
 use crate::math::Math;
 use crate::rtc::{self, Rtc};
 use crate::scheduler::{Event, Scheduler};
+use crate::slot2::Slot2;
 use crate::sound::{self, Sound};
 use crate::spi::Spi;
 use crate::timers::Timers;
@@ -107,6 +108,8 @@ pub struct Bus {
     pub sound: Sound,
     /// The wireless hardware (ARM7), at 04800000h.
     pub wifi: Wifi,
+    /// The GBA slot: a cartridge, the Rumble Pak or nothing.
+    pub slot2: Slot2,
 }
 
 impl Bus {
@@ -152,6 +155,7 @@ impl Bus {
             wifiwaitcnt: 0,
             sound: Sound::new(),
             wifi: Wifi::new(),
+            slot2: Slot2::Empty,
         };
         if let Some(image) = bios9 {
             let n = image.len().min(BIOS9_SIZE);
@@ -188,6 +192,7 @@ impl Bus {
     /// Restoring a state keeps the ROM and BIOS images of the running machine.
     pub(crate) fn take_images_from(&mut self, other: &mut Bus) {
         self.cart.take_rom_from(&mut other.cart);
+        self.slot2.take_rom_from(&mut other.slot2);
         std::mem::swap(&mut self.bios9, &mut other.bios9);
         std::mem::swap(&mut self.bios7, &mut other.bios7);
         self.spi.take_firmware_from(&mut other.spi);

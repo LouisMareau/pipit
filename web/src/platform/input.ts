@@ -88,6 +88,9 @@ export class Input {
   // Held state of the controller-driven emulator actions, for edge detection.
   private padFastForward = false;
   private padPause = false;
+  // The Rumble Pak: whether the motors run, and when they were last renewed.
+  private rumbling = false;
+  private rumbleRenewedAt = 0;
   onChange: (keys: number) => void = () => {};
   onFastForward: (held: boolean) => void = () => {};
   onPause: () => void = () => {};
@@ -229,6 +232,39 @@ export class Input {
         }
       },
     };
+  }
+
+  /**
+   * The game's Rumble Pak moved this frame (or not): the controller's motors
+   * and the phone's vibration follow, renewed while it keeps moving.
+   */
+  setRumble(on: boolean) {
+    if (!on) {
+      if (this.rumbling) this.stopRumble();
+      return;
+    }
+    const now = performance.now();
+    if (this.rumbling && now - this.rumbleRenewedAt < 150) return;
+    this.rumbling = true;
+    this.rumbleRenewedAt = now;
+    const pad = this.active !== null ? navigator.getGamepads()[this.active] : null;
+    pad?.vibrationActuator?.playEffect?.("dual-rumble", { duration: 250, strongMagnitude: 0.8, weakMagnitude: 0.5 }).catch(() => {});
+    try {
+      navigator.vibrate?.(250);
+    } catch {
+      // Not every browser allows it; the controller still rumbles.
+    }
+  }
+
+  private stopRumble() {
+    this.rumbling = false;
+    const pad = this.active !== null ? navigator.getGamepads()[this.active] : null;
+    pad?.vibrationActuator?.reset?.().catch(() => {});
+    try {
+      navigator.vibrate?.(0);
+    } catch {
+      // As above.
+    }
   }
 
   /** Releases everything the controller was holding. */
