@@ -110,6 +110,10 @@ state. The ARM9 is an `Arch::V5TE` core, the ARM7 an `Arch::V4T` one, both from
 | `bios/` | BIOS | Replacement images with only the exception vectors and interrupt dispatchers; every SWI in `bios/swi.rs`; optional real BIOS images |
 | `scheduler.rs` | — | The shared clock, in ARM9 cycles (two per bus cycle) |
 
+The web app shows both screens stacked in one 256 × 384 picture; a pointer on the
+bottom half is the pen (`Emulator::set_touch`), and the key bits add X and Y above
+the Advance's ten.
+
 ### Timing model
 
 Each CPU has its own clock in ARM9 cycles (the ARM7 adds two per bus cycle). They

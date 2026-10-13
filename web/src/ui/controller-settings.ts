@@ -12,6 +12,8 @@ import { icon } from "./icons";
 const LABELS: Record<ControllerAction, string> = {
   A: "A",
   B: "B",
+  X: "X",
+  Y: "Y",
   L: "L",
   R: "R",
   Start: "Start",

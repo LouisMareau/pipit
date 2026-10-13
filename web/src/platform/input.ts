@@ -338,7 +338,7 @@ export class Input {
   }
 
   private emit() {
-    const keys = (this.keyboard | this.touch | this.gamepad) & 0x3ff;
+    const keys = (this.keyboard | this.touch | this.gamepad) & 0xfff;
     if (keys !== this.last) {
       this.last = keys;
       this.onChange(keys);

@@ -1,7 +1,8 @@
 # Pipit
 
 A clean, free Game Boy Advance and Game Boy Color emulator that runs in the browser, on your phone and on
-the desktop — from one codebase. A Nintendo DS core is being built on the same foundations.
+the desktop — from one codebase. A Nintendo DS core is being built on the same foundations and already
+plays 2D games in the browser, with the pen on the bottom screen.
 
 - **Accurate.** A from-scratch ARM7TDMI core, cycle-counted memory bus, scanline video
   and full audio, verified against open test ROM suites. Retail games and custom

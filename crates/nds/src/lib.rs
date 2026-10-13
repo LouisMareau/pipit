@@ -44,7 +44,16 @@ pub struct Nds {
 }
 
 fn blank_frame() -> Box<[u32; SCREEN_WIDTH * SCREEN_HEIGHT * 2]> {
-    Box::new([0xFF00_0000; SCREEN_WIDTH * SCREEN_HEIGHT * 2])
+    boxed(0xFF00_0000)
+}
+
+/// A boxed array filled with `value`, built on the heap: `Box::new([v; N])`
+/// may go through the stack, which WebAssembly has little of.
+pub(crate) fn boxed<T: Copy, const N: usize>(value: T) -> Box<[T; N]> {
+    match vec![value; N].into_boxed_slice().try_into() {
+        Ok(array) => array,
+        Err(_) => unreachable!("the vector has N elements"),
+    }
 }
 
 impl Nds {
@@ -294,6 +303,14 @@ impl Nds {
         let mut out = Vec::new();
         snapshot::write_into(&STATE_FORMAT, &self.bus.cart.game_code, self, &mut out);
         out
+    }
+
+    /// A hash of the whole machine state, to check that two emulations agree.
+    pub fn state_hash(&self) -> u64 {
+        let state = self.save_state();
+        state.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| {
+            (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3)
+        })
     }
 
     pub fn load_state(&mut self, data: &[u8]) -> Result<(), StateError> {

@@ -78,15 +78,15 @@ impl Default for Vram {
 impl Vram {
     pub fn new() -> Self {
         let mut vram = Self {
-            a: Box::new([0; 0x20000]),
-            b: Box::new([0; 0x20000]),
-            c: Box::new([0; 0x20000]),
-            d: Box::new([0; 0x20000]),
-            e: Box::new([0; 0x10000]),
-            f: Box::new([0; 0x4000]),
-            g: Box::new([0; 0x4000]),
-            h: Box::new([0; 0x8000]),
-            i: Box::new([0; 0x4000]),
+            a: crate::boxed(0),
+            b: crate::boxed(0),
+            c: crate::boxed(0),
+            d: crate::boxed(0),
+            e: crate::boxed(0),
+            f: crate::boxed(0),
+            g: crate::boxed(0),
+            h: crate::boxed(0),
+            i: crate::boxed(0),
             cnt: [0; 9],
             tables: Default::default(),
         };

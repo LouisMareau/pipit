@@ -15,6 +15,7 @@ export interface KeyHelpRow {
 const SYSTEMS: { id: System; name: string; accept: string; files: string }[] = [
   { id: "gba", name: "GBA", accept: ".gba,application/octet-stream", files: ".gba" },
   { id: "gbc", name: "GBC", accept: ".gb,.gbc,application/octet-stream", files: ".gb or .gbc" },
+  { id: "nds", name: "DS", accept: ".nds,application/octet-stream", files: ".nds" },
 ];
 
 export class Library {

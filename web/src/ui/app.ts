@@ -217,6 +217,7 @@ export class App {
       if (this.current) this.togglePause();
     };
     this.touch.onChange = (keys) => this.input.setTouch(keys);
+    this.wireScreenPen();
 
     // Audio can only start from a user gesture.
     const unlock = () => this.audio.resume();
@@ -505,6 +506,10 @@ export class App {
 
   private openLinkDialog() {
     if (!this.current || this.session) return;
+    if (this.current.system === "nds") {
+      this.toast("Playing together is not available for DS games yet");
+      return;
+    }
     this.pauseForDialog(true);
     this.linkDialog.open(this.settings.connection, this.current.system !== "gbc");
   }
@@ -772,6 +777,43 @@ export class App {
     this.paused = !this.paused;
     this.setRunning(!this.paused);
     this.player.querySelector('[data-action="pause"]')!.classList.toggle("active", this.paused);
+  }
+
+  /**
+   * On a DS game the bottom half of the picture is the touch screen: a
+   * pointer pressed on it is the pen, in that screen's pixel coordinates.
+   */
+  private wireScreenPen() {
+    const canvas = this.screen.element;
+    let penPointer: number | null = null;
+    const pen = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.floor(((e.clientX - rect.left) / rect.width) * canvas.width);
+      const y = Math.floor(((e.clientY - rect.top) / rect.height) * canvas.height) - canvas.height / 2;
+      if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height / 2) this.emulator.setTouch(-1, -1);
+      else this.emulator.setTouch(x, y);
+    };
+    const lift = (e: PointerEvent) => {
+      if (e.pointerId !== penPointer) return;
+      penPointer = null;
+      this.emulator.setTouch(-1, -1);
+    };
+    canvas.addEventListener("pointerdown", (e) => {
+      if (this.current?.system !== "nds" || penPointer !== null) return;
+      penPointer = e.pointerId;
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // Capture is a nicety: the pen still follows the pointer while it is over the screen.
+      }
+      pen(e);
+      e.preventDefault();
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (e.pointerId === penPointer) pen(e);
+    });
+    canvas.addEventListener("pointerup", lift);
+    canvas.addEventListener("pointercancel", lift);
   }
 
   /** The player minus the toolbar: the screen and the touch controls. */

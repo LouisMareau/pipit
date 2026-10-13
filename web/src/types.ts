@@ -1,6 +1,6 @@
 // Messages between the UI thread and the emulator worker, plus shared types.
 
-/** GBA key bits, matching `pipit_gba::Keys`. */
+/** Key bits, matching `pipit_gba::Keys`; X and Y are the DS's (`pipit_nds::Keys`). */
 export const Key = {
   A: 1 << 0,
   B: 1 << 1,
@@ -12,6 +12,8 @@ export const Key = {
   Down: 1 << 7,
   R: 1 << 8,
   L: 1 << 9,
+  X: 1 << 10,
+  Y: 1 << 11,
 } as const;
 
 export type KeyName = keyof typeof Key;
@@ -30,10 +32,10 @@ export interface LinkLoad {
   wireless?: boolean;
 }
 
-/** Which console a game is for; `.gb` and `.gbc` files are Game Boy games. */
-export type System = "gba" | "gbc";
+/** Which console a game is for; `.gb` and `.gbc` files are Game Boy games, `.nds` DS games. */
+export type System = "gba" | "gbc" | "nds";
 
-export const SYSTEM_NAMES: Record<System, string> = { gba: "GBA", gbc: "GBC" };
+export const SYSTEM_NAMES: Record<System, string> = { gba: "GBA", gbc: "GBC", nds: "DS" };
 
 export type ToWorker =
   | {
@@ -66,6 +68,8 @@ export type ToWorker =
   /** Also send the other consoles' pictures with every frame (shown beside the player's). */
   | { type: "sideScreens"; enabled: boolean }
   | { type: "keys"; keys: number }
+  /** The pen on the DS's bottom screen (x 0–255, y 0–191); negative lifts it. */
+  | { type: "touch"; x: number; y: number }
   | { type: "fastForward"; enabled: boolean }
   | { type: "colors"; mode: number; strength: number }
   | { type: "requestSave" }
@@ -105,8 +109,8 @@ export interface RomEntry {
   lastPlayed: number;
 }
 
-/** GBA keys in the order the remapping screens list them. */
-export const KEY_NAMES: KeyName[] = ["A", "B", "L", "R", "Start", "Select", "Up", "Down", "Left", "Right"];
+/** Keys in the order the remapping screens list them (X and Y are the DS's). */
+export const KEY_NAMES: KeyName[] = ["A", "B", "X", "Y", "L", "R", "Start", "Select", "Up", "Down", "Left", "Right"];
 
 /** Emulator actions that keys and controller buttons can drive besides GBA keys. */
 export type EmulatorAction = "FastForward" | "Pause";
@@ -128,6 +132,8 @@ export const DEFAULT_MAPPING: ControllerMapping = {
   buttons: {
     A: 0,
     B: 1,
+    X: 2,
+    Y: 3,
     L: 4,
     R: 5,
     Select: 8,
@@ -173,6 +179,8 @@ export const KEYBOARD_ACTIONS: KeyboardAction[] = [...KEY_NAMES, ...EMULATOR_ACT
 export const DEFAULT_KEYBOARD: KeyboardMapping = {
   A: "KeyZ",
   B: "KeyX",
+  X: "KeyW",
+  Y: "KeyQ",
   L: "KeyA",
   R: "KeyS",
   Start: "Enter",

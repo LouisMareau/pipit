@@ -12,9 +12,9 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launch, sleep } from "./lib/cdp.mjs";
 
-const [romArg, url = "http://localhost:4173", shotArg, gbRomArg] = process.argv.slice(2);
+const [romArg, url = "http://localhost:4173", shotArg, gbRomArg, ndsRomArg] = process.argv.slice(2);
 if (!romArg) {
-  console.error("usage: node scripts/smoke-web.mjs <rom.gba> [url] [screenshot.png] [rom.gbc]");
+  console.error("usage: node scripts/smoke-web.mjs <rom.gba> [url] [screenshot.png] [rom.gbc] [rom.nds]");
   process.exit(2);
 }
 const rom = resolve(romArg);
@@ -533,6 +533,70 @@ if (gbRomArg) {
   console.log(`game boy link: host ${JSON.stringify(gb.link.host)} guest ${JSON.stringify(gb.link.guest)}`);
   await gbGuest.closeWindow();
   await sleep(800);
+  // A window closed abruptly does not say goodbye: the host is still in the
+  // session and asks before leaving it.
+  await evaluate("document.querySelector('[data-action=back]').click(); true");
+  await sleep(400);
+  await evaluate("document.querySelector('.modal-backdrop:not(.hidden) [data-action=confirm]')?.click(); true");
+  const inLibrary = () => evaluate("document.querySelector('.player').classList.contains('hidden')");
+  for (let i = 0; i < 24 && !(await inLibrary()); i++) await sleep(250);
+}
+
+// A DS game, when one is given (WordleDS is the one the DS checks expect): it
+// goes under the DS tab, shows both screens stacked at 256×384, the A/B disc
+// gains X and Y, and a tap on the bottom screen reaches the game: WordleDS
+// opens on a how-to-play page whose close button sits at the top right of
+// the bottom screen, and the page changes once it is tapped.
+let nds = null;
+if (ndsRomArg) {
+  await evaluate("document.querySelector('.tab[data-tab=nds]').click(); true");
+  const { root: doc3 } = await send("DOM.getDocument", { depth: 1 });
+  const { nodeId: ndsInput } = await send("DOM.querySelector", { nodeId: doc3.nodeId, selector: "[data-panel=nds] input[type=file]" });
+  await send("DOM.setFileInputFiles", { nodeId: ndsInput, files: [resolve(ndsRomArg)] });
+  await sleep(1500);
+  const listed = await evaluate("document.querySelectorAll('.rom-list[data-system=nds] .rom-main').length");
+  await evaluate("document.querySelector('.rom-list[data-system=nds] .rom-main').click(); true");
+  await sleep(8000);
+  const bottomInk = () =>
+    evaluate(`(() => {
+      const canvas = document.querySelector('.screen');
+      const d = canvas.getContext('2d').getImageData(0, canvas.height / 2, canvas.width, canvas.height / 2).data;
+      let ink = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] < 128) ink++;
+      return ink;
+    })()`);
+  const inkBefore = await bottomInk();
+  nds = await evaluate(`(() => {
+    const canvas = document.querySelector('.screen');
+    const r = canvas.getBoundingClientRect();
+    return { listed: ${listed}, system: document.querySelector('.player').dataset.system, width: canvas.width, height: canvas.height,
+      fps: document.querySelector('.toolbar-fps').textContent,
+      playing: !document.querySelector('.player').classList.contains('hidden'),
+      playerClass: document.querySelector('.player').className,
+      openModals: Array.from(document.querySelectorAll('.modal-backdrop')).filter((m) => !m.classList.contains('hidden')).map((m) => m.className + ' > ' + (m.querySelector('h2, h3, .modal-title')?.textContent ?? '?')),
+      underTag: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.tagName,
+      toasts: Array.from(document.querySelectorAll('.toast')).map((t) => t.textContent),
+      xyShown: getComputedStyle(document.querySelector('.tbtn-x')).display !== 'none',
+      tapX: r.left + (r.width * 243.5) / 256, tapY: r.top + (r.height * (192 + 10.5)) / 384 };
+  })()`);
+  // The tap goes through the page's own pointer events (the link tests leave
+  // extra windows behind, so the session's input would hit another one).
+  nds.under = await evaluate(`document.elementFromPoint(${nds.tapX}, ${nds.tapY})?.className`);
+  const tap = (type, buttons) =>
+    evaluate(`document.querySelector('.screen').dispatchEvent(new PointerEvent('${type}', { clientX: ${nds.tapX}, clientY: ${nds.tapY}, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: ${buttons}, bubbles: true })); true`);
+  await tap("pointerdown", 1);
+  await sleep(250);
+  await tap("pointerup", 0);
+  await sleep(2500);
+  if (process.env.PIPIT_SMOKE_DS_SHOT) {
+    const data = await evaluate("document.querySelector('.screen').toDataURL('image/png')");
+    writeFileSync(process.env.PIPIT_SMOKE_DS_SHOT, Buffer.from(data.split(",")[1], "base64"));
+  }
+  nds.after = await evaluate("({ playing: !document.querySelector('.player').classList.contains('hidden'), toasts: Array.from(document.querySelectorAll('.toast')).map((t) => t.textContent), fps: document.querySelector('.toolbar-fps').textContent })");
+  nds.inkBefore = inkBefore;
+  nds.inkAfter = await bottomInk();
+  nds.tapChangedScreen = Math.abs(nds.inkAfter - nds.inkBefore) > inkBefore * 0.2;
+  console.log(`ds: ${JSON.stringify(nds)}`);
   await evaluate("document.querySelector('[data-action=back]').click(); true");
   await sleep(500);
 }
@@ -567,9 +631,9 @@ if (
   !picker.open ||
   (pads.length === 0 ? picker.options[0] !== "No controller detected" : picker.options.length !== pads.length) ||
   !modal.open ||
-  modal.rows !== 12 ||
+  modal.rows !== 14 ||
   !modalClosed ||
-  keyboardRows !== 12 ||
+  keyboardRows !== 14 ||
   fastForwardLabel !== "F" ||
   !fastActive ||
   !fastReleased ||
@@ -598,6 +662,7 @@ if (
   !phone.landscape.selectLeftOfStart ||
   !phone.landscape.pillsSameRow ||
   !phone.landscape.pillsHugScreen ||
+  (nds && !(nds.listed === 1 && nds.system === "nds" && nds.width === 256 && nds.height === 384 && nds.xyShown && nds.tapChangedScreen)) ||
   phone.landscape.shoulderWidthRatio < 0.9 ||
   !phone.landscape.editor.editing ||
   phone.landscape.editor.handles !== 7 ||

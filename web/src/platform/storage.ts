@@ -1,6 +1,6 @@
 // IndexedDB storage. Everything stays on the device: ROMs, saves and settings.
 
-import type { RomEntry, Settings } from "../types";
+import type { RomEntry, Settings, System } from "../types";
 import { DEFAULT_SETTINGS } from "../types";
 
 const DB_NAME = "pipit";
@@ -49,12 +49,15 @@ export async function listRoms(): Promise<RomEntry[]> {
 export async function addRom(file: File): Promise<RomEntry> {
   const data = await file.arrayBuffer();
   const id = await hash(data);
+  const system: System = /.gbc?$/i.test(file.name) ? "gbc" : /.nds$/i.test(file.name) ? "nds" : "gba";
+  // The DS header starts with the title and game code; the Advance's are at A0h.
+  const header = system === "nds" ? 0 : 0xa0;
   const entry: RomEntry = {
     id,
-    name: file.name.replace(/\.(gba|gbc|gb)$/i, ""),
-    system: /\.gbc?$/i.test(file.name) ? "gbc" : "gba",
-    title: readHeaderString(data, 0xa0, 12),
-    gameCode: readHeaderString(data, 0xac, 4),
+    name: file.name.replace(/.(gba|gbc|gb|nds)$/i, ""),
+    system,
+    title: readHeaderString(data, header, 12),
+    gameCode: readHeaderString(data, header + 0xc, 4),
     size: data.byteLength,
     addedAt: Date.now(),
     lastPlayed: 0,

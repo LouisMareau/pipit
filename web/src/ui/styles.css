@@ -1546,3 +1546,55 @@ body[data-chrome="drawer"] .toast {
 .confirm-dialog p {
   margin: 0 0 16px;
 }
+
+/* DS games: the bottom half of the picture is the touch screen, and X and Y
+   join the A/B disc as a diamond (X top, Y left, A right, B bottom). */
+.player[data-system="nds"] .screen {
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.tbtn-x,
+.tbtn-y {
+  display: none;
+  position: absolute;
+  border-radius: 50%;
+}
+
+.player[data-system="nds"] .tbtn-x,
+.player[data-system="nds"] .tbtn-y {
+  display: block;
+}
+
+.player[data-system="nds"] .tbtn-a,
+.player[data-system="nds"] .tbtn-b,
+.player[data-system="nds"] .tbtn-x,
+.player[data-system="nds"] .tbtn-y {
+  width: 34%;
+  height: 34%;
+  font-size: calc(var(--pad-size) * 0.12);
+}
+
+.player[data-system="nds"] .tbtn-a {
+  right: 3%;
+  top: 33%;
+}
+
+.player[data-system="nds"] .tbtn-b {
+  left: 33%;
+  bottom: 3%;
+}
+
+.player[data-system="nds"] .tbtn-x {
+  left: 33%;
+  top: 3%;
+}
+
+.player[data-system="nds"] .tbtn-y {
+  left: 3%;
+  top: 33%;
+}
+
+.player[data-system="nds"] .abpad .pad-dot {
+  display: none;
+}

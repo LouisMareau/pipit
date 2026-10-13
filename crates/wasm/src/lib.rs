@@ -8,16 +8,20 @@
 
 use pipit_gba::{Gba, Keys};
 use pipit_gbc::Gbc;
+use pipit_nds::Nds;
 use wasm_bindgen::prelude::*;
 
 /// `system` values the front-end passes: 0 is a Game Boy Advance.
 const SYSTEM_GBC: u8 = 1;
+const SYSTEM_NDS: u8 = 2;
 
 /// One long-lived object either way: the size difference does not matter.
 #[allow(clippy::large_enum_variant)]
 enum Core {
     Gba(pipit_gba::Link),
     Gbc(pipit_gbc::Link),
+    /// One DS: playing together is not available for DS games yet.
+    Nds(Box<Nds>),
 }
 
 /// A console's picture (the last console's, for a player index past the end).
@@ -25,6 +29,7 @@ fn framebuffer(core: &Core, player: usize) -> &[u32] {
     match core {
         Core::Gba(link) => link.nodes()[player.min(link.nodes().len() - 1)].framebuffer(),
         Core::Gbc(link) => link.nodes()[player.min(link.nodes().len() - 1)].framebuffer(),
+        Core::Nds(nds) => nds.framebuffer(),
     }
 }
 
@@ -76,7 +81,11 @@ impl Emulator {
         system: u8,
         wireless: bool,
     ) -> Emulator {
-        let (core, width, height) = if system == SYSTEM_GBC {
+        let (core, width, height) = if system == SYSTEM_NDS {
+            // Both screens, the top one above the bottom one.
+            let nds = Nds::new(rom.to_vec(), None, None, None);
+            (Core::Nds(Box::new(nds)), pipit_nds::SCREEN_WIDTH, pipit_nds::SCREEN_HEIGHT * 2)
+        } else if system == SYSTEM_GBC {
             let nodes = (0..players.min(2)).map(|_| Gbc::new(rom.to_vec())).collect();
             (
                 Core::Gbc(pipit_gbc::Link::new(nodes)),
@@ -109,6 +118,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(link) => link.nodes().len(),
             Core::Gbc(link) => link.nodes().len(),
+            Core::Nds(_) => 1,
         }
     }
 
@@ -125,6 +135,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(_) => true,
             Core::Gbc(link) => link.nodes()[self.local].is_color(),
+            Core::Nds(_) => true,
         }
     }
 
@@ -139,6 +150,7 @@ impl Emulator {
             Core::Gba(link) if link.nodes().len() == 1 => link.nodes_mut()[0].run_frame(),
             Core::Gba(link) => link.run_frame(),
             Core::Gbc(link) => link.run_frame(),
+            Core::Nds(nds) => nds.run_frame(),
         }
     }
 
@@ -167,10 +179,12 @@ impl Emulator {
 
     /// 0 = raw colours, 1 = the LCD look of the game's console at `strength` (0.0-1.0).
     pub fn set_color_correction(&mut self, mode: u8, strength: f32) {
-        self.color_lut = if mode == 1 && strength > 0.0 && self.is_color() {
+        let lcd = !matches!(self.core, Core::Nds(_));
+        self.color_lut = if mode == 1 && strength > 0.0 && self.is_color() && lcd {
             Some(match &self.core {
                 Core::Gba(_) => pipit_gba::video::color::lcd_lut_with_strength(f64::from(strength)),
                 Core::Gbc(_) => pipit_gbc::color::lcd_lut_with_strength(f64::from(strength)),
+                Core::Nds(_) => unreachable!("no LCD look for the DS"),
             })
         } else {
             None
@@ -195,9 +209,19 @@ impl Emulator {
     /// Sets the keys held on any console of the link.
     pub fn set_player_keys(&mut self, player: usize, keys: u16) {
         match &mut self.core {
-            Core::Gba(link) => link.nodes_mut()[player].set_keys(Keys(keys)),
+            Core::Gba(link) => link.nodes_mut()[player].set_keys(Keys(keys & 0x3FF)),
             // The Game Boy's eight keys are the Advance's low byte.
             Core::Gbc(link) => link.nodes_mut()[player].set_keys(keys as u8),
+            Core::Nds(nds) => nds.set_keys(pipit_nds::Keys(keys)),
+        }
+    }
+
+    /// The pen on the DS's bottom screen (x 0–255, y 0–191); a negative
+    /// coordinate lifts it.
+    pub fn set_touch(&mut self, x: i32, y: i32) {
+        if let Core::Nds(nds) = &mut self.core {
+            let touch = (x >= 0 && y >= 0).then(|| (x.min(255) as u8, y.min(191) as u8));
+            nds.set_touch(touch);
         }
     }
 
@@ -223,6 +247,7 @@ impl Emulator {
                     }
                 }
             }
+            Core::Nds(nds) => out = nds.drain_audio(),
         }
         out
     }
@@ -244,6 +269,9 @@ impl Emulator {
             Core::Gbc(link) => link.nodes_mut().iter_mut().for_each(|node| {
                 node.drain_audio();
             }),
+            Core::Nds(nds) => {
+                nds.drain_audio();
+            }
         }
     }
 
@@ -252,6 +280,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(link) => link.save_state(),
             Core::Gbc(link) => link.save_state(),
+            Core::Nds(nds) => nds.save_state(),
         }
     }
 
@@ -259,6 +288,7 @@ impl Emulator {
         match &mut self.core {
             Core::Gba(link) => link.load_state(data),
             Core::Gbc(link) => link.load_state(data),
+            Core::Nds(nds) => nds.load_state(data),
         }
         .map_err(|e| JsError::new(&e.to_string()))
     }
@@ -267,6 +297,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(link) => link.nodes()[self.local].save_data().map(<[u8]>::to_vec),
             Core::Gbc(link) => link.nodes()[self.local].save_data(),
+            Core::Nds(nds) => nds.save_data().map(<[u8]>::to_vec),
         }
     }
 
@@ -279,6 +310,7 @@ impl Emulator {
         match &mut self.core {
             Core::Gba(link) => link.nodes_mut()[player].load_save_data(data),
             Core::Gbc(link) => link.nodes_mut()[player].load_save_data(data),
+            Core::Nds(nds) => nds.load_save_data(data),
         }
     }
 
@@ -286,6 +318,7 @@ impl Emulator {
         match &mut self.core {
             Core::Gba(link) => link.nodes_mut()[self.local].take_save_dirty(),
             Core::Gbc(link) => link.nodes_mut()[self.local].take_save_dirty(),
+            Core::Nds(nds) => nds.take_save_dirty(),
         }
     }
 
@@ -294,6 +327,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(link) => link.nodes()[self.local].save_state(),
             Core::Gbc(link) => link.nodes()[self.local].save_state(),
+            Core::Nds(nds) => nds.save_state(),
         }
     }
 
@@ -302,6 +336,7 @@ impl Emulator {
         match &mut self.core {
             Core::Gba(link) => link.nodes_mut()[self.local].load_state(data),
             Core::Gbc(link) => link.nodes_mut()[self.local].load_state(data),
+            Core::Nds(nds) => nds.load_state(data),
         }
         .map_err(|e| JsError::new(&e.to_string()))
     }
@@ -312,6 +347,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(link) => (link.transfers() + link.wakes()) as u32,
             Core::Gbc(link) => link.transfers() as u32,
+            Core::Nds(_) => 0,
         }
     }
 
@@ -320,6 +356,7 @@ impl Emulator {
         let h = match &self.core {
             Core::Gba(link) => link.state_hash(),
             Core::Gbc(link) => link.state_hash(),
+            Core::Nds(nds) => nds.state_hash(),
         };
         (h as u32) ^ ((h >> 32) as u32)
     }
@@ -333,6 +370,7 @@ impl Emulator {
             Core::Gbc(link) => {
                 link.nodes_mut().iter_mut().for_each(|node| node.set_time(unix_seconds as i64))
             }
+            Core::Nds(nds) => nds.set_time(unix_seconds as i64),
         }
     }
 
@@ -340,6 +378,7 @@ impl Emulator {
         match &self.core {
             Core::Gba(link) => link.nodes()[self.local].title(),
             Core::Gbc(link) => link.nodes()[self.local].title(),
+            Core::Nds(nds) => nds.title().to_string(),
         }
     }
 
@@ -349,6 +388,7 @@ impl Emulator {
             Core::Gbc(link) => {
                 if link.nodes()[self.local].is_color() { "GBC" } else { "GB" }.to_string()
             }
+            Core::Nds(nds) => nds.game_code().to_string(),
         }
     }
 }

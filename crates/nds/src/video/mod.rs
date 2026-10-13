@@ -214,14 +214,11 @@ pub struct Video {
 }
 
 fn blank_screens() -> [Box<[u32; SCREEN_WIDTH * SCREEN_HEIGHT]>; 2] {
-    [
-        Box::new([0xFF00_0000; SCREEN_WIDTH * SCREEN_HEIGHT]),
-        Box::new([0xFF00_0000; SCREEN_WIDTH * SCREEN_HEIGHT]),
-    ]
+    [crate::boxed(0xFF00_0000), crate::boxed(0xFF00_0000)]
 }
 
 fn blank_fifo() -> Box<[u16; SCREEN_WIDTH]> {
-    Box::new([0; SCREEN_WIDTH])
+    crate::boxed(0)
 }
 
 /// What a scanline event asks the system to do.
@@ -249,8 +246,8 @@ impl Video {
             in_hblank: false,
             powcnt1: 0x820F,
             vram: Vram::new(),
-            palette: Box::new([0; 0x800]),
-            oam: Box::new([0; 0x800]),
+            palette: crate::boxed(0),
+            oam: crate::boxed(0),
             dispcapcnt: 0,
             disp3dcnt: 0,
             fifo: blank_fifo(),

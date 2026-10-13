@@ -86,6 +86,11 @@ export class EmulatorClient {
     this.send({ type: "keys", keys });
   }
 
+  /** The pen on the DS's bottom screen, or lifted (negative coordinates). */
+  setTouch(x: number, y: number) {
+    this.send({ type: "touch", x, y });
+  }
+
   setFastForward(enabled: boolean) {
     this.send({ type: "fastForward", enabled });
   }

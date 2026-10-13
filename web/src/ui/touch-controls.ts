@@ -50,6 +50,8 @@ export class TouchControls {
         <div class="pad abpad">
           <button class="tbtn tbtn-b" data-key="${Key.B}">B</button>
           <button class="tbtn tbtn-a" data-key="${Key.A}">A</button>
+          <button class="tbtn tbtn-x" data-key="${Key.X}">X</button>
+          <button class="tbtn tbtn-y" data-key="${Key.Y}">Y</button>
           <span class="pad-dot pad-dot-nw"></span>
           <span class="pad-dot pad-dot-se"></span>
         </div>

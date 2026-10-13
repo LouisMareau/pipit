@@ -11,6 +11,8 @@ import init, { Emulator } from "@wasm/pipit_wasm.js";
 import type { FromWorker, LinkLoad, System, ToWorker } from "../types";
 
 const SAVE_CHECK_FRAMES = 60;
+/** `system` as the WASM side numbers it. */
+const SYSTEM_CODES: Record<System, number> = { gba: 0, gbc: 1, nds: 2 };
 /** On a link, how often the state digest is reported for comparison with the partner's. */
 const HASH_FRAMES = 60;
 
@@ -82,6 +84,9 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       keys = msg.keys;
       if (!linked) emulator?.set_keys(keys);
       break;
+    case "touch":
+      emulator?.set_touch(msg.x, msg.y);
+      break;
     case "fastForward":
       if (linked) break;
       fastForward = msg.enabled;
@@ -114,7 +119,9 @@ self.onmessage = async (event: MessageEvent<ToWorker>) => {
       }
       break;
     case "returnFrame":
-      if (spareBuffers.length < 8) spareBuffers.push(msg.pixels);
+      // A buffer of the previous game's size (one still in flight when the
+      // game changed) would corrupt frames: only the right size goes back in.
+      if (spareBuffers.length < 8 && msg.pixels.byteLength === emulator?.frame_len()) spareBuffers.push(msg.pixels);
       break;
   }
 };
@@ -145,14 +152,14 @@ async function load(
         link.players,
         link.local,
         biosBytes,
-        system === "gbc" ? 1 : 0,
+        SYSTEM_CODES[system],
         link.wireless === true,
       );
       link.saves.forEach((data, i) => {
         if (data) emulator?.load_player_save_data(i, new Uint8Array(data));
       });
     } else {
-      emulator = new Emulator(new Uint8Array(rom), biosBytes, system === "gbc" ? 1 : 0);
+      emulator = new Emulator(new Uint8Array(rom), biosBytes, SYSTEM_CODES[system]);
       if (save) emulator.load_save_data(new Uint8Array(save));
     }
     emulator.set_time(unixSeconds);
