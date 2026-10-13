@@ -6,30 +6,34 @@ use super::{Bus, ARM7, ARM9};
 
 impl Bus {
     /// A 2D engine's registers: `e` is 0 for A (000h), 1 for B (1000h).
+    /// A 2D engine's registers: `e` is 0 for A (000h), 1 for B (1000h). Engine
+    /// A also has the 3D display control, the capture control and the FIFO.
     fn engine_read(&self, e: usize, reg: u32) -> u16 {
-        let engine = &self.video.engines[e];
         match reg {
-            0x000 => engine.dispcnt as u16,
-            0x002 => (engine.dispcnt >> 16) as u16,
-            0x008..=0x05F => engine.regs[((reg - 8) / 2) as usize],
-            0x06C => engine.master_bright,
-            _ => 0,
+            0x060 if e == 0 => self.video.disp3dcnt,
+            0x064 if e == 0 => self.video.dispcapcnt as u16,
+            0x066 if e == 0 => (self.video.dispcapcnt >> 16) as u16,
+            _ => self.video.engines[e].read_reg(reg),
         }
     }
 
     fn engine_write(&mut self, e: usize, reg: u32, value: u16, mask: u16) {
-        let engine = &mut self.video.engines[e];
         let v = u32::from(value & mask);
         let m = u32::from(mask);
         match reg {
-            0x000 => engine.dispcnt = (engine.dispcnt & !m) | v,
-            0x002 => engine.dispcnt = (engine.dispcnt & !(m << 16)) | (v << 16),
-            0x008..=0x05F => {
-                let r = &mut engine.regs[((reg - 8) / 2) as usize];
-                *r = (*r & !mask) | (value & mask);
+            0x060 if e == 0 => {
+                self.video.disp3dcnt = (self.video.disp3dcnt & !mask) | (value & mask & 0x4FFF)
             }
-            0x06C => engine.master_bright = (engine.master_bright & !mask) | (value & mask),
-            _ => {}
+            0x064 if e == 0 => {
+                self.video.dispcapcnt = ((self.video.dispcapcnt & !m) | v) & 0xEF3F_1F1F
+            }
+            0x066 if e == 0 => {
+                self.video.dispcapcnt =
+                    ((self.video.dispcapcnt & !(m << 16)) | (v << 16)) & 0xEF3F_1F1F;
+            }
+            // The FIFO takes whole words (io_write32).
+            0x068 | 0x06A if e == 0 => {}
+            _ => self.video.engines[e].write_reg(reg, value, mask),
         }
     }
 
@@ -224,6 +228,7 @@ impl Bus {
 
     pub fn io_write32(&mut self, cpu: usize, reg: u32, value: u32) {
         match reg {
+            0x068 if cpu == ARM9 => self.video.push_fifo(value),
             0x188 => {
                 let signals = self.ipc.send(cpu, value);
                 self.apply_ipc(cpu, signals);

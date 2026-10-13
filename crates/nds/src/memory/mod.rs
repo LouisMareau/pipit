@@ -230,6 +230,16 @@ impl Bus {
         if signals.line_started && visible {
             self.dma[ARM9].trigger(Timing::DisplayStart);
         }
+        if signals.line_started && visible && self.video.fifo_in_use() {
+            // The main memory display FIFO takes the line as 32 requests of 4 words.
+            for _ in 0..32 {
+                self.dma[ARM9].trigger(Timing::DisplayFifo);
+                if !self.dma[ARM9].has_pending() {
+                    break;
+                }
+                run_dma(&mut View9(self));
+            }
+        }
     }
 
     /// Interrupts an IPC register access asked for.
@@ -296,7 +306,11 @@ pub fn run_dma<V: View>(view: &mut V) {
             1 => step.wrapping_neg(),
             _ => 0,
         };
-        let units = if timing == Timing::Card { 1 } else { ch.remaining };
+        let units = match timing {
+            Timing::Card => 1,
+            Timing::DisplayFifo => ch.remaining.min(4),
+            _ => ch.remaining,
+        };
         let (mut src, mut dst) = (ch.src, ch.dst);
         for i in 0..units {
             let seq = i != 0;

@@ -98,7 +98,7 @@ state. The ARM9 is an `Arch::V5TE` core, the ARM7 an `Arch::V4T` one, both from
 | Module | Hardware | Notes |
 |--------|----------|-------|
 | `memory/` | Buses | The shared state, the two maps, the I/O registers as each CPU sees them, the DMA runner |
-| `video/` | LCD, the two 2D engines | Scanline timing, the VRAM banks and their page tables (`vram.rs`), rendering (`render.rs`: display modes and text backgrounds so far) |
+| `video/` | LCD, the two 2D engines | Scanline timing and the engines' registers (`mod.rs`), the VRAM banks and their page tables (`vram.rs`), backgrounds (`bg.rs`), objects (`obj.rs`), composition through windows and colour effects, display modes, capture and master brightness (`render.rs`); pixels are kept at 18 bits until the screen |
 | `cart.rs` | DS card | The header (what direct boot loads), ROMCTRL and the data port: plain `B7` reads and the chip id |
 | `ipc.rs` | IPC | IPCSYNC and the two 16-word FIFOs with their interrupts |
 | `math.rs` | Divider, square root | The ARM9's 280h–2BFh block; results are immediate |

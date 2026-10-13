@@ -22,8 +22,7 @@ Checked items are done and covered by tests.
 ## Nintendo DS core (`crates/nds`, in progress)
 
 - [x] Stage 1, the machine: both CPUs on the shared ARM core (`crates/arm`: ARMv4T for the ARM7, ARMv5TE for the ARM9, each with its own clock, run in short slices), their memory maps with the TCMs, the shared WRAM split and the VRAM bank mapping, interrupts, timers, DMA, IPC sync and FIFOs, the card interface, the divider and square root, and a direct boot from the ROM header with every SWI in Rust (rockwrestler: all 25 tests pass, `scripts/rockwrestler.mjs`)
-- [x] Display, first part: LCD timing, the VRAM display mode and text backgrounds (what test ROMs and homebrew menus use)
-- [ ] Stage 2, the 2D engines in full: affine and bitmap backgrounds, objects, windows, blending, extended palettes, capture, the main-memory display FIFO
+- [x] Stage 2, the 2D engines in full (`crates/nds/src/video/`, checked line by line by its unit tests): text, affine, extended (16-bit map entries, 8-bit and direct-colour bitmaps) and mode 6 large backgrounds; tiled and bitmap objects with their own alpha, affine and double-size, the object window; extended palettes for backgrounds and objects; windows, alpha blending, brightness; master brightness; the four display modes (off, graphics, VRAM, main memory FIFO) and display capture. Still to come with the 3D engine: the 3D layer as BG0 and as a capture source
 - [ ] Stage 3, sound: the 16 channels and capture, through the existing audio path
 - [ ] Stage 4, the rest of the hardware: SPI (firmware, touch screen, power management), RTC, the card's save chips (EEPROM, Flash), the GBA slot
 - [ ] Stage 5, the 3D engine (geometry and rendering)

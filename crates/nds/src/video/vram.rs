@@ -26,9 +26,15 @@ pub enum Region {
     ObjB,
     /// Banks C and D as the ARM7's work RAM, 256 KB at 06000000h.
     Arm7,
+    /// Engine A's extended background palettes: four 8 KB slots.
+    BgExtPalA,
+    /// Engine A's extended object palette, 8 KB (one page).
+    ObjExtPalA,
+    BgExtPalB,
+    ObjExtPalB,
 }
 
-const REGION_PAGES: [usize; 6] = [41, 32, 16, 8, 8, 16];
+const REGION_PAGES: [usize; 10] = [41, 32, 16, 8, 8, 16, 2, 1, 2, 1];
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 struct Page {
@@ -60,7 +66,7 @@ pub struct Vram {
     pub i: Box<[u8; 0x4000]>,
     /// VRAMCNT A–I as written.
     pub cnt: [u8; 9],
-    tables: [Vec<Page>; 6],
+    tables: [Vec<Page>; 10],
 }
 
 impl Default for Vram {
@@ -156,6 +162,7 @@ impl Vram {
                     0 => Some((Region::Lcdc, 0x80000)),
                     1 => Some((Region::BgA, 0)),
                     2 => Some((Region::ObjA, 0)),
+                    4 => Some((Region::BgExtPalA, 0)),
                     _ => None,
                 },
                 5 | 6 => {
@@ -164,18 +171,22 @@ impl Vram {
                         0 => Some((Region::Lcdc, 0x90000 + (n - 5) * 0x4000)),
                         1 => Some((Region::BgA, small)),
                         2 => Some((Region::ObjA, small)),
+                        4 => Some((Region::BgExtPalA, (ofs & 1) * 0x4000)),
+                        5 => Some((Region::ObjExtPalA, 0)),
                         _ => None,
                     }
                 }
                 7 => match mst {
                     0 => Some((Region::Lcdc, 0x98000)),
                     1 => Some((Region::BgB, 0)),
+                    2 => Some((Region::BgExtPalB, 0)),
                     _ => None,
                 },
                 _ => match mst {
                     0 => Some((Region::Lcdc, 0xA0000)),
                     1 => Some((Region::BgB, 0x8000)),
                     2 => Some((Region::ObjB, 0)),
+                    3 => Some((Region::ObjExtPalB, 0)),
                     _ => None,
                 },
             };
@@ -248,5 +259,24 @@ impl Vram {
     /// The size of a region, for wrapping addresses.
     pub fn region_size(region: Region) -> usize {
         REGION_PAGES[region as usize] * PAGE
+    }
+
+    /// A halfword of bank `n` itself, wherever it is mapped (the VRAM display
+    /// mode and display capture address banks directly).
+    pub fn read_bank16(&self, n: usize, offset: usize) -> u16 {
+        let b = self.bank(n);
+        let offset = offset & !1;
+        if offset + 2 > b.len() {
+            return 0;
+        }
+        u16::from_le_bytes([b[offset], b[offset + 1]])
+    }
+
+    pub fn write_bank16(&mut self, n: usize, offset: usize, value: u16) {
+        let b = self.bank_mut(n);
+        let offset = offset & !1;
+        if offset + 2 <= b.len() {
+            b[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+        }
     }
 }

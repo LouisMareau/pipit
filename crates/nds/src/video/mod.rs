@@ -1,12 +1,18 @@
-//! Display timing and the two 2D engines' registers; rendering is in
-//! `render.rs`, the banks in `vram.rs`.
+//! The two 2D engines and the display timing. Rendering is in `render.rs`
+//! (composition, effects, capture), `bg.rs` (backgrounds) and `obj.rs`
+//! (objects); the banks are in `vram.rs`.
 //!
 //! Each scanline raises HBlank and then advances VCOUNT; the visible lines are
 //! drawn at the start of their HBlank. Both CPUs see DISPSTAT and VCOUNT, each
 //! with its own interrupt enables and VCOUNT match.
 
+pub mod bg;
+pub mod obj;
 pub mod render;
 pub mod vram;
+
+#[cfg(test)]
+mod tests;
 
 use crate::scheduler::{Event, Scheduler, HBLANK_START, LINES, LINE_CYCLES};
 use serde::{Deserialize, Serialize};
@@ -19,15 +25,160 @@ pub const SCREEN_HEIGHT: usize = 192;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Engine {
     pub dispcnt: u32,
-    /// BGxCNT, offsets, affine parameters, windows, blending: 008h–05Fh, raw.
+    /// BGxCNT, offsets, affine parameters, windows, mosaic, blending: 008h–05Fh.
     #[serde(with = "pipit_common::snapshot::array")]
     pub regs: [u16; 0x2C],
     pub master_bright: u16,
+    /// BG2 and BG3's reference points as written (28-bit, sign extended).
+    pub bgx: [i32; 2],
+    pub bgy: [i32; 2],
+    /// The internal reference points, stepped once per line.
+    pub bgx_internal: [i32; 2],
+    pub bgy_internal: [i32; 2],
 }
 
 impl Default for Engine {
     fn default() -> Self {
-        Self { dispcnt: 0, regs: [0; 0x2C], master_bright: 0 }
+        let mut regs = [0; 0x2C];
+        // PA and PD start as the identity.
+        regs[12] = 0x100;
+        regs[15] = 0x100;
+        regs[20] = 0x100;
+        regs[23] = 0x100;
+        Self {
+            dispcnt: 0,
+            regs,
+            master_bright: 0,
+            bgx: [0; 2],
+            bgy: [0; 2],
+            bgx_internal: [0; 2],
+            bgy_internal: [0; 2],
+        }
+    }
+}
+
+impl Engine {
+    #[inline(always)]
+    pub fn mode(&self) -> u32 {
+        self.dispcnt & 7
+    }
+
+    #[inline(always)]
+    pub fn bg_enabled(&self, n: usize) -> bool {
+        self.dispcnt & (1 << (8 + n)) != 0
+    }
+
+    #[inline(always)]
+    pub fn bgcnt(&self, n: usize) -> u16 {
+        self.regs[n]
+    }
+
+    #[inline(always)]
+    pub fn hofs(&self, n: usize) -> usize {
+        usize::from(self.regs[4 + n * 2] & 0x1FF)
+    }
+
+    #[inline(always)]
+    pub fn vofs(&self, n: usize) -> usize {
+        usize::from(self.regs[5 + n * 2] & 0x1FF)
+    }
+
+    /// PA, PB, PC, PD of BG2 (`a` = 0) or BG3 (`a` = 1).
+    #[inline(always)]
+    pub fn affine(&self, a: usize) -> [i32; 4] {
+        let at = 12 + a * 8;
+        [
+            i32::from(self.regs[at] as i16),
+            i32::from(self.regs[at + 1] as i16),
+            i32::from(self.regs[at + 2] as i16),
+            i32::from(self.regs[at + 3] as i16),
+        ]
+    }
+
+    pub fn winh(&self, n: usize) -> u16 {
+        self.regs[28 + n]
+    }
+
+    pub fn winv(&self, n: usize) -> u16 {
+        self.regs[30 + n]
+    }
+
+    pub fn winin(&self) -> u16 {
+        self.regs[32]
+    }
+
+    pub fn winout(&self) -> u16 {
+        self.regs[33]
+    }
+
+    pub fn mosaic(&self) -> u16 {
+        self.regs[34]
+    }
+
+    pub fn bldcnt(&self) -> u16 {
+        self.regs[36]
+    }
+
+    pub fn bldalpha(&self) -> u16 {
+        self.regs[37]
+    }
+
+    pub fn bldy(&self) -> u16 {
+        self.regs[38]
+    }
+
+    /// A register at engine offset `reg` (000h–06Fh); write-only ones read 0.
+    pub fn read_reg(&self, reg: u32) -> u16 {
+        match reg {
+            0x000 => self.dispcnt as u16,
+            0x002 => (self.dispcnt >> 16) as u16,
+            0x008..=0x00E | 0x048 | 0x04A | 0x050 | 0x052 => self.regs[((reg - 8) / 2) as usize],
+            0x06C => self.master_bright,
+            _ => 0,
+        }
+    }
+
+    pub fn write_reg(&mut self, reg: u32, value: u16, mask: u16) {
+        let v = u32::from(value & mask);
+        let m = u32::from(mask);
+        match reg {
+            0x000 => self.dispcnt = (self.dispcnt & !m) | v,
+            0x002 => self.dispcnt = (self.dispcnt & !(m << 16)) | (v << 16),
+            0x008..=0x05F => {
+                let i = ((reg - 8) / 2) as usize;
+                self.regs[i] = (self.regs[i] & !mask) | (value & mask);
+                // BG2X/Y at 028h–02Eh, BG3X/Y at 038h–03Eh: reload the internal point.
+                if (0x028..=0x02E).contains(&reg) || (0x038..=0x03E).contains(&reg) {
+                    let a = usize::from(reg >= 0x038);
+                    let base = 16 + a * 8;
+                    let word = |i: usize| {
+                        ((u32::from(self.regs[i + 1]) << 16 | u32::from(self.regs[i])) << 4) as i32
+                            >> 4
+                    };
+                    self.bgx[a] = word(base);
+                    self.bgy[a] = word(base + 2);
+                    self.bgx_internal[a] = self.bgx[a];
+                    self.bgy_internal[a] = self.bgy[a];
+                }
+            }
+            0x06C => self.master_bright = (self.master_bright & !mask) | (value & mask & 0xC01F),
+            _ => {}
+        }
+    }
+
+    /// Frame start: the internal reference points restart from the written ones.
+    pub fn reload_affine(&mut self) {
+        self.bgx_internal = self.bgx;
+        self.bgy_internal = self.bgy;
+    }
+
+    /// After each visible line, the reference points step by PB and PD.
+    pub fn advance_affine(&mut self) {
+        for a in 0..2 {
+            let [_, pb, _, pd] = self.affine(a);
+            self.bgx_internal[a] = self.bgx_internal[a].wrapping_add(pb);
+            self.bgy_internal[a] = self.bgy_internal[a].wrapping_add(pd);
+        }
     }
 }
 
@@ -45,9 +196,20 @@ pub struct Video {
     pub palette: Box<[u8; 0x800]>,
     #[serde(with = "pipit_common::snapshot::bytes_box")]
     pub oam: Box<[u8; 0x800]>,
+    /// DISPCAPCNT (064h): engine A's display capture.
+    pub dispcapcnt: u32,
+    /// DISP3DCNT (060h), kept for the 3D engine.
+    pub disp3dcnt: u16,
+    /// DISP_MMEM_FIFO (068h): the line DMA pushes from main memory.
+    #[serde(skip, default = "blank_fifo")]
+    fifo: Box<[u16; SCREEN_WIDTH]>,
+    #[serde(skip)]
+    fifo_pos: usize,
     /// The two screens' pixels as 0xFFRRGGBB: index 0 is the top screen.
     #[serde(skip, default = "blank_screens")]
     pub screens: [Box<[u32; SCREEN_WIDTH * SCREEN_HEIGHT]>; 2],
+    #[serde(skip)]
+    scratch: Box<[render::Scratch; 2]>,
     frame_ready: bool,
 }
 
@@ -56,6 +218,10 @@ fn blank_screens() -> [Box<[u32; SCREEN_WIDTH * SCREEN_HEIGHT]>; 2] {
         Box::new([0xFF00_0000; SCREEN_WIDTH * SCREEN_HEIGHT]),
         Box::new([0xFF00_0000; SCREEN_WIDTH * SCREEN_HEIGHT]),
     ]
+}
+
+fn blank_fifo() -> Box<[u16; SCREEN_WIDTH]> {
+    Box::new([0; SCREEN_WIDTH])
 }
 
 /// What a scanline event asks the system to do.
@@ -85,7 +251,12 @@ impl Video {
             vram: Vram::new(),
             palette: Box::new([0; 0x800]),
             oam: Box::new([0; 0x800]),
+            dispcapcnt: 0,
+            disp3dcnt: 0,
+            fifo: blank_fifo(),
+            fifo_pos: 0,
             screens: blank_screens(),
+            scratch: Box::default(),
             frame_ready: false,
         }
     }
@@ -119,11 +290,30 @@ impl Video {
         self.dispstat[cpu] = (self.dispstat[cpu] & !mask) | (value & mask);
     }
 
+    /// The main memory display FIFO took a word: two pixels of the current line.
+    pub fn push_fifo(&mut self, word: u32) {
+        if self.fifo_pos + 1 < SCREEN_WIDTH {
+            self.fifo[self.fifo_pos] = word as u16;
+            self.fifo[self.fifo_pos + 1] = (word >> 16) as u16;
+        }
+        self.fifo_pos += 2;
+    }
+
+    /// Whether the main memory FIFO feeds anything: engine A's display mode 3,
+    /// or a capture whose source B is the FIFO.
+    pub fn fifo_in_use(&self) -> bool {
+        (self.engines[0].dispcnt >> 16) & 3 == 3
+            || self.dispcapcnt & (1 << 31 | 1 << 25) == (1 << 31 | 1 << 25)
+    }
+
     /// The visible part of the current line ended: draw it, enter HBlank.
     pub fn on_hblank_start(&mut self, at: u64, scheduler: &mut Scheduler) -> Signals {
         let mut signals = Signals { hblank_started: true, ..Signals::default() };
         if self.vcount < SCREEN_HEIGHT as u16 {
             self.render_line(self.vcount as usize);
+            for engine in &mut self.engines {
+                engine.advance_affine();
+            }
         }
         self.in_hblank = true;
         for cpu in 0..2 {
@@ -140,12 +330,18 @@ impl Video {
         let mut signals = Signals { line_started: true, ..Signals::default() };
         self.in_hblank = false;
         self.vcount += 1;
+        self.fifo_pos = 0;
         if self.vcount == LINES as u16 {
             self.vcount = 0;
+            for engine in &mut self.engines {
+                engine.reload_affine();
+            }
         }
         if self.vcount == SCREEN_HEIGHT as u16 {
             self.frame_ready = true;
             signals.vblank_started = true;
+            // A capture lasts one frame.
+            self.dispcapcnt &= !(1 << 31);
             for cpu in 0..2 {
                 if self.dispstat[cpu] & (1 << 3) != 0 {
                     signals.irq[cpu] |= 1;
