@@ -13,6 +13,7 @@ pub mod irq;
 pub mod math;
 pub mod memory;
 pub mod scheduler;
+pub mod sound;
 pub mod timers;
 pub mod video;
 
@@ -86,6 +87,7 @@ impl Nds {
             frame: blank_frame(),
         };
         nds.bus.video.start(&mut nds.bus.scheduler);
+        nds.bus.sound.start(&mut nds.bus.scheduler);
         nds.direct_boot();
         nds
     }
@@ -262,6 +264,12 @@ impl Nds {
     /// The last frame's screens: index 0 is the top one.
     pub fn screens(&self) -> [&[u32]; 2] {
         [&self.bus.video.screens[0][..], &self.bus.video.screens[1][..]]
+    }
+
+    /// Takes the audio produced since the last call: interleaved stereo i16 at
+    /// the mixer's 32.7 kHz (played as 32768 Hz).
+    pub fn drain_audio(&mut self) -> Vec<i16> {
+        self.bus.sound.drain_samples()
     }
 
     pub fn set_keys(&mut self, keys: Keys) {

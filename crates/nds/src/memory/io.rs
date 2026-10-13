@@ -99,10 +99,7 @@ impl Bus {
                     self.powcnt2
                 }
             }
-            0x400..=0x51F if cpu == ARM7 => {
-                let i = (reg - 0x400) as usize;
-                u16::from_le_bytes([self.sound[i], self.sound[i + 1]])
-            }
+            0x400..=0x51F if cpu == ARM7 => self.sound.read_io(reg),
             _ => 0,
         }
     }
@@ -214,13 +211,8 @@ impl Bus {
                 }
             }
             0x400..=0x51F if cpu == ARM7 => {
-                let i = (reg - 0x400) as usize;
-                if mask & 0x00FF != 0 {
-                    self.sound[i] = value as u8;
-                }
-                if mask & 0xFF00 != 0 {
-                    self.sound[i + 1] = (value >> 8) as u8;
-                }
+                let (sound, mem) = self.sound_parts();
+                sound.write_io(reg, value, mask, &mem);
             }
             _ => {}
         }

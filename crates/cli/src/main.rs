@@ -36,6 +36,9 @@ enum Command {
         /// Write the final frame as a PNG.
         #[arg(long)]
         screenshot: Option<PathBuf>,
+        /// Write the audio of the whole run as a WAV file (stereo, 32768 Hz).
+        #[arg(long)]
+        wav: Option<PathBuf>,
         /// Optional BIOS image (uses the built-in replacement otherwise).
         #[arg(long)]
         bios: Option<PathBuf>,
@@ -123,6 +126,7 @@ fn main() -> Result<()> {
             rom,
             frames,
             screenshot,
+            wav,
             bios,
             save,
             regs,
@@ -145,12 +149,16 @@ fn main() -> Result<()> {
             }
             let script = keys.as_deref().map(parse_key_script).transpose()?.unwrap_or_default();
             let mut frame = 0u32;
-            let run_to = |machine: &mut Machine, frame: &mut u32, end: u32| {
+            let mut audio: Vec<i16> = Vec::new();
+            let mut run_to = |machine: &mut Machine, frame: &mut u32, end: u32| {
                 while *frame < end {
                     if let Some((_, keys)) = script.iter().find(|(f, _)| *f == *frame) {
                         machine.set_keys(*keys);
                     }
                     machine.run_frame();
+                    if wav.is_some() {
+                        audio.extend(machine.drain_audio());
+                    }
                     *frame += 1;
                 }
             };
@@ -190,6 +198,10 @@ fn main() -> Result<()> {
                 let (width, height) = machine.size();
                 write_png(&path, machine.framebuffer(), width, height)?;
                 println!("wrote {}", path.display());
+            }
+            if let Some(path) = &wav {
+                write_wav(path, &audio, 32_768)?;
+                println!("wrote {} ({:.1} s)", path.display(), audio.len() as f64 / 2.0 / 32_768.0);
             }
             if let (Some(path), Some(data)) = (save, machine.save_data()) {
                 fs::write(&path, data)?;
@@ -365,5 +377,31 @@ fn write_png(path: &PathBuf, pixels: &[u32], width: u32, height: u32) -> Result<
     let rgb: Vec<u8> =
         pixels.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8]).collect();
     writer.write_image_data(&rgb)?;
+    Ok(())
+}
+
+/// Writes interleaved stereo 16-bit samples as a WAV file.
+fn write_wav(path: &PathBuf, samples: &[i16], rate: u32) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let data_len = (samples.len() * 2) as u32;
+    let mut out = Vec::with_capacity(44 + samples.len() * 2);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&2u16.to_le_bytes()); // stereo
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&(rate * 4).to_le_bytes());
+    out.extend_from_slice(&4u16.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for s in samples {
+        out.extend_from_slice(&s.to_le_bytes());
+    }
+    fs::write(path, out)?;
     Ok(())
 }

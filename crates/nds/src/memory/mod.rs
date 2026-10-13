@@ -19,6 +19,7 @@ use crate::ipc::{self, Ipc};
 use crate::irq::{Interrupt, Irq};
 use crate::math::Math;
 use crate::scheduler::{Event, Scheduler};
+use crate::sound::{self, Sound};
 use crate::timers::Timers;
 use crate::video::{self, Video, SCREEN_HEIGHT};
 use serde::{Deserialize, Serialize};
@@ -98,9 +99,7 @@ pub struct Bus {
     pub rtc: u16,
     pub powcnt2: u16,
     pub wifiwaitcnt: u16,
-    /// The ARM7's sound registers (400h–51Fh), kept raw until there is a mixer.
-    #[serde(with = "pipit_common::snapshot::bytes_box")]
-    pub sound: Box<[u8; 0x120]>,
+    pub sound: Sound,
 }
 
 impl Bus {
@@ -138,7 +137,7 @@ impl Bus {
             rtc: 0,
             powcnt2: 0,
             wifiwaitcnt: 0,
-            sound: Box::new([0; 0x120]),
+            sound: Sound::new(),
         };
         if let Some(image) = bios9 {
             let n = image.len().min(BIOS9_SIZE);
@@ -201,7 +200,8 @@ impl Bus {
                     let owner = self.card_owner();
                     self.dma[owner].trigger(Timing::Card);
                 }
-                Event::MathDone | Event::AudioSample => {}
+                Event::AudioSample => self.audio_sample(at),
+                Event::MathDone => {}
             }
         }
     }
@@ -240,6 +240,25 @@ impl Bus {
                 run_dma(&mut View9(self));
             }
         }
+    }
+
+    /// One mix sample of the sound unit, reading and writing through the
+    /// ARM7's view of memory.
+    fn audio_sample(&mut self, at: u64) {
+        self.scheduler.schedule_at(Event::AudioSample, at + sound::CYCLES_PER_SAMPLE);
+        let (sound, mut mem) = self.sound_parts();
+        sound.sample(&mut mem);
+    }
+
+    /// The sound unit and the memory it works on, borrowed side by side.
+    pub(crate) fn sound_parts(&mut self) -> (&mut Sound, SoundMemory<'_>) {
+        let mem = SoundMemory {
+            main_ram: &mut self.main_ram[..],
+            shared_wram: &mut self.shared_wram[..],
+            arm7_wram: &mut self.arm7_wram[..],
+            wramcnt: self.wramcnt,
+        };
+        (&mut self.sound, mem)
     }
 
     /// Interrupts an IPC register access asked for.
@@ -342,5 +361,78 @@ pub fn run_dma<V: View>(view: &mut V) {
                 bus.irq[cpu].raise(Interrupt::dma(n));
             }
         }
+    }
+}
+
+/// Main memory and the work RAMs as the sound unit reads samples from them
+/// and the captures write to them: no timing, no I/O.
+pub struct SoundMemory<'a> {
+    main_ram: &'a mut [u8],
+    shared_wram: &'a mut [u8],
+    arm7_wram: &'a mut [u8],
+    wramcnt: u8,
+}
+
+impl SoundMemory<'_> {
+    #[inline(always)]
+    fn slot(&self, addr: u32) -> Option<(usize, usize)> {
+        match addr >> 24 {
+            0x02 => Some((0, (addr & 0x3F_FFFF) as usize)),
+            0x03 => match arm7::wram7(self.wramcnt, addr) {
+                (true, i) => Some((1, i)),
+                (false, i) => Some((2, i)),
+            },
+            _ => None,
+        }
+    }
+
+    #[inline(always)]
+    fn bank(&self, which: usize) -> &[u8] {
+        match which {
+            0 => self.main_ram,
+            1 => self.shared_wram,
+            _ => self.arm7_wram,
+        }
+    }
+
+    #[inline(always)]
+    fn bank_mut(&mut self, which: usize) -> &mut [u8] {
+        match which {
+            0 => self.main_ram,
+            1 => self.shared_wram,
+            _ => self.arm7_wram,
+        }
+    }
+}
+
+impl sound::Memory for SoundMemory<'_> {
+    #[inline(always)]
+    fn read8(&self, addr: u32) -> u8 {
+        match self.slot(addr) {
+            Some((bank, i)) => self.bank(bank)[i],
+            None => 0,
+        }
+    }
+    #[inline(always)]
+    fn read16(&self, addr: u32) -> u16 {
+        let addr = addr & !1;
+        u16::from_le_bytes([self.read8(addr), self.read8(addr + 1)])
+    }
+    #[inline(always)]
+    fn read32(&self, addr: u32) -> u32 {
+        let addr = addr & !3;
+        u32::from(self.read16(addr)) | u32::from(self.read16(addr + 2)) << 16
+    }
+    #[inline(always)]
+    fn write8(&mut self, addr: u32, value: u8) {
+        if let Some((bank, i)) = self.slot(addr) {
+            self.bank_mut(bank)[i] = value;
+        }
+    }
+    #[inline(always)]
+    fn write16(&mut self, addr: u32, value: u16) {
+        let addr = addr & !1;
+        self.write8(addr, value as u8);
+        self.write8(addr + 1, (value >> 8) as u8);
     }
 }

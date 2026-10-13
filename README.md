@@ -20,7 +20,7 @@ crates/   Rust workspace — the emulator
   arm/    pipit-arm   the ARM interpreter the GBA and DS cores share (ARMv4T and ARMv5TE)
   gba/    pipit-gba   the GBA core: memory/ video/ audio/ cartridge/ bios/ …
   gbc/    pipit-gbc   the Game Boy / Game Boy Color core
-  nds/    pipit-nds   the Nintendo DS core (in progress: both CPUs, the machine, the 2D engines)
+  nds/    pipit-nds   the Nintendo DS core (in progress: both CPUs, the machine, the 2D engines, sound)
   wasm/   pipit-wasm  WebAssembly bindings for the web app
   cli/    pipit-cli   headless runner: tests, screenshots, benchmarks
 web/      The app (Vite + TypeScript PWA): ui/ features/ platform/

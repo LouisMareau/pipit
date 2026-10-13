@@ -101,6 +101,7 @@ state. The ARM9 is an `Arch::V5TE` core, the ARM7 an `Arch::V4T` one, both from
 | `video/` | LCD, the two 2D engines | Scanline timing and the engines' registers (`mod.rs`), the VRAM banks and their page tables (`vram.rs`), backgrounds (`bg.rs`), objects (`obj.rs`), composition through windows and colour effects, display modes, capture and master brightness (`render.rs`); pixels are kept at 18 bits until the screen |
 | `cart.rs` | DS card | The header (what direct boot loads), ROMCTRL and the data port: plain `B7` reads and the chip id |
 | `ipc.rs` | IPC | IPCSYNC and the two 16-word FIFOs with their interrupts |
+| `sound.rs` | Sound | Sixteen channels (PCM8/16, ADPCM, square, noise) read through the ARM7's view of memory, the mixer, the two captures; one stereo sample per 1024 bus cycles |
 | `math.rs` | Divider, square root | The ARM9's 280h–2BFh block; results are immediate |
 | `dma.rs`, `timers.rs`, `irq.rs` | Per CPU | The ARM9's eight DMA timings and 21-bit counts, the ARM7's four and 16-bit; 32-bit IE/IF |
 | `bios/` | BIOS | Replacement images with only the exception vectors and interrupt dispatchers; every SWI in `bios/swi.rs`; optional real BIOS images |

@@ -73,6 +73,15 @@ impl Machine {
         }
     }
 
+    /// The audio produced since the last call: interleaved stereo i16 at 32768 Hz.
+    pub fn drain_audio(&mut self) -> Vec<i16> {
+        match self {
+            Machine::Gba(g) => g.drain_audio(),
+            Machine::Gbc(g) => g.drain_audio(),
+            Machine::Nds(n) => n.drain_audio(),
+        }
+    }
+
     /// One instruction of the DS's ARM7 (the only machine with a second CPU).
     pub fn step7(&mut self) {
         match self {

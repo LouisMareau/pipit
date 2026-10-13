@@ -8,15 +8,7 @@ impl Bus {
     /// it is the ARM7's and the address is below 03800000h) or its own.
     #[inline(always)]
     fn wram7(&self, addr: u32) -> (bool, usize) {
-        if addr & 0x0080_0000 == 0 {
-            match self.wramcnt & 3 {
-                1 => return (true, (addr & 0x3FFF) as usize),
-                2 => return (true, 0x4000 + (addr & 0x3FFF) as usize),
-                3 => return (true, (addr & 0x7FFF) as usize),
-                _ => {}
-            }
-        }
-        (false, (addr & 0xFFFF) as usize)
+        wram7(self.wramcnt, addr)
     }
 
     /// Cycles for an ARM7 access: `halves` 16-bit transfers on the narrow buses.
@@ -234,4 +226,18 @@ impl pipit_arm::Bus for View7<'_> {
             false
         }
     }
+}
+
+/// Where an ARM7 address at 03xxxxxxh lands given WRAMCNT: `(shared, offset)`.
+#[inline(always)]
+pub(super) fn wram7(wramcnt: u8, addr: u32) -> (bool, usize) {
+    if addr & 0x0080_0000 == 0 {
+        match wramcnt & 3 {
+            1 => return (true, (addr & 0x3FFF) as usize),
+            2 => return (true, 0x4000 + (addr & 0x3FFF) as usize),
+            3 => return (true, (addr & 0x7FFF) as usize),
+            _ => {}
+        }
+    }
+    (false, (addr & 0xFFFF) as usize)
 }
