@@ -7,6 +7,7 @@
 //! game issues afterwards come back unscrambled here, as the scrambling
 //! cancels out on the way back on real hardware too.
 
+use crate::backup::Backup;
 use crate::scheduler::{Event, Scheduler};
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +33,9 @@ pub struct Cart {
 
     // The card interface (shared by both CPUs; EXMEMCNT says who owns it).
     pub auxspicnt: u16,
+    /// The save chip behind AUXSPI, and the byte it returned last.
+    pub backup: Backup,
+    pub auxspi_data: u8,
     pub romctrl: u32,
     pub command: [u8; 8],
     /// Bytes still to deliver for the current command.
@@ -83,10 +87,13 @@ impl Cart {
             ram_address: read_u32(&rom, at + 8),
             size: read_u32(&rom, at + 12),
         };
+        let game_code = text(12, 4);
         let chip_id = 0x0000_3FC2 | ((rom.len() as u32 / 0x10_0000).saturating_sub(1) & 0xFF) << 8;
         Self {
             title: text(0, 12),
-            game_code: text(12, 4),
+            backup: Backup::new(game_code.starts_with('I')),
+            auxspi_data: 0,
+            game_code,
             arm9: program(0x20),
             arm7: program(0x30),
             chip_id,
@@ -116,6 +123,24 @@ impl Cart {
     /// A byte of the ROM; reads past the end see FFh like an unprogrammed chip.
     pub fn byte(&self, offset: u32) -> u8 {
         self.rom.get(offset as usize).copied().unwrap_or(0xFF)
+    }
+
+    /// AUXSPICNT written: disabling the slot deselects the save chip. Clearing
+    /// the hold bit does not by itself; the chip is deselected after the next
+    /// transfer, which is how drivers send the last byte of a command.
+    pub fn write_auxspicnt(&mut self, value: u16, mask: u16) {
+        self.auxspicnt = (self.auxspicnt & !mask) | (value & mask & 0xE0C3);
+        if self.auxspicnt & (1 << 15) == 0 {
+            self.backup.deselect();
+        }
+    }
+
+    /// AUXSPIDATA written: a byte to the save chip when the slot is in SPI mode.
+    pub fn write_auxspi_data(&mut self, byte: u8) {
+        if self.auxspicnt & 0xA000 == 0xA000 {
+            let hold = self.auxspicnt & (1 << 6) != 0;
+            self.auxspi_data = self.backup.transfer(byte, hold);
+        }
     }
 
     /// ROMCTRL (1A4h) as read: the live bits over what was written.

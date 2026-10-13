@@ -16,11 +16,16 @@ pub enum Machine {
 }
 
 impl Machine {
-    pub fn open(path: &Path, rom: Vec<u8>, bios: Option<Vec<u8>>) -> Self {
+    pub fn open(
+        path: &Path,
+        rom: Vec<u8>,
+        bios: Option<Vec<u8>>,
+        firmware: Option<Vec<u8>>,
+    ) -> Self {
         if is_game_boy(path) {
             Machine::Gbc(Gbc::new(rom))
         } else if is_ds(path) {
-            Machine::Nds(Box::new(Nds::new(rom, None, None)))
+            Machine::Nds(Box::new(Nds::new(rom, None, None, firmware)))
         } else {
             Machine::Gba(Gba::new(rom, bios))
         }
@@ -122,7 +127,7 @@ impl Machine {
         match self {
             Machine::Gba(g) => g.load_save_data(data),
             Machine::Gbc(g) => g.load_save_data(data),
-            Machine::Nds(_) => {}
+            Machine::Nds(n) => n.load_save_data(data),
         }
     }
 
@@ -130,7 +135,14 @@ impl Machine {
         match self {
             Machine::Gba(g) => g.save_data().map(<[u8]>::to_vec),
             Machine::Gbc(g) => g.save_data(),
-            Machine::Nds(_) => None,
+            Machine::Nds(n) => n.save_data().map(<[u8]>::to_vec),
+        }
+    }
+
+    /// The pen on the DS's bottom screen, or lifted; nothing on other machines.
+    pub fn set_touch(&mut self, touch: Option<(u8, u8)>) {
+        if let Machine::Nds(n) = self {
+            n.set_touch(touch);
         }
     }
 

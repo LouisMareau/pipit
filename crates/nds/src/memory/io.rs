@@ -3,6 +3,7 @@
 //! are the ARM9's, the sound, SPI and extra keys the ARM7's.
 
 use super::{Bus, ARM7, ARM9};
+use crate::irq::Interrupt;
 
 impl Bus {
     /// A 2D engine's registers: `e` is 0 for A (000h), 1 for B (1000h).
@@ -51,19 +52,19 @@ impl Bus {
             0x130 => self.keys,
             0x132 => self.keycnt[cpu],
             0x136 if cpu == ARM7 => u16::from(self.ext_keys),
-            0x138 if cpu == ARM7 => self.rtc,
+            0x138 if cpu == ARM7 => u16::from(self.rtc.read()),
             0x180 => self.ipc.read_sync(cpu),
             0x184 => self.ipc.read_cnt(cpu),
             0x1A0 => self.cart.auxspicnt,
-            0x1A2 => 0,
+            0x1A2 => u16::from(self.cart.auxspi_data),
             0x1A4 => self.cart.read_romctrl() as u16,
             0x1A6 => (self.cart.read_romctrl() >> 16) as u16,
             0x1A8..=0x1AE => {
                 let i = (reg - 0x1A8) as usize;
                 u16::from_le_bytes([self.cart.command[i], self.cart.command[i + 1]])
             }
-            0x1C0 if cpu == ARM7 => self.spicnt,
-            0x1C2 if cpu == ARM7 => 0,
+            0x1C0 if cpu == ARM7 => self.spi.cnt,
+            0x1C2 if cpu == ARM7 => u16::from(self.spi.read_data()),
             0x204 => {
                 if cpu == ARM9 {
                     self.exmemcnt
@@ -141,7 +142,12 @@ impl Bus {
                 self.timers[cpu].write_io(reg, value, mask, now, &mut self.scheduler);
             }
             0x132 => self.keycnt[cpu] = (self.keycnt[cpu] & !mask) | v,
-            0x138 if cpu == ARM7 => self.rtc = (self.rtc & !mask) | v,
+            0x138 if cpu == ARM7 => {
+                if mask & 0x00FF != 0 {
+                    let now = self.time[ARM7];
+                    self.rtc.write(value as u8, now);
+                }
+            }
             0x180 => {
                 let signals = self.ipc.write_sync(cpu, value, mask);
                 self.apply_ipc(cpu, signals);
@@ -150,7 +156,12 @@ impl Bus {
                 let signals = self.ipc.write_cnt(cpu, value, mask);
                 self.apply_ipc(cpu, signals);
             }
-            0x1A0 => self.cart.auxspicnt = (self.cart.auxspicnt & !mask) | v,
+            0x1A0 => self.cart.write_auxspicnt(value, mask),
+            0x1A2 => {
+                if mask & 0x00FF != 0 {
+                    self.cart.write_auxspi_data(value as u8);
+                }
+            }
             0x1A4 => {
                 self.cart.write_romctrl(u32::from(value), u32::from(mask), &mut self.scheduler);
                 self.card_check();
@@ -172,7 +183,12 @@ impl Bus {
                     self.cart.command[i + 1] = (value >> 8) as u8;
                 }
             }
-            0x1C0 if cpu == ARM7 => self.spicnt = (self.spicnt & !mask) | v,
+            0x1C0 if cpu == ARM7 => self.spi.write_cnt(value, mask),
+            0x1C2 if cpu == ARM7 => {
+                if mask & 0x00FF != 0 && self.spi.write_data(value as u8) {
+                    self.raise(ARM7, Interrupt::Spi);
+                }
+            }
             0x204 => {
                 if cpu == ARM9 {
                     self.exmemcnt = (self.exmemcnt & !mask) | v;

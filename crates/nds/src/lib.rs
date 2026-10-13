@@ -5,15 +5,19 @@
 //! interface, the divider, the two 2D engines' timing and text backgrounds,
 //! and a BIOS replacement that boots a ROM directly from its header.
 
+pub mod backup;
 pub mod bios;
 pub mod cart;
 pub mod dma;
+pub mod firmware;
 pub mod ipc;
 pub mod irq;
 pub mod math;
 pub mod memory;
+pub mod rtc;
 pub mod scheduler;
 pub mod sound;
+pub mod spi;
 pub mod timers;
 pub mod video;
 
@@ -43,51 +47,25 @@ fn blank_frame() -> Box<[u32; SCREEN_WIDTH * SCREEN_HEIGHT * 2]> {
     Box::new([0xFF00_0000; SCREEN_WIDTH * SCREEN_HEIGHT * 2])
 }
 
-/// CRC-16 as the firmware and the BIOS compute it (polynomial A001h, reflected).
-pub fn crc16(init: u16, bytes: &[u8]) -> u16 {
-    let mut crc = init;
-    for &b in bytes {
-        crc ^= u16::from(b);
-        for _ in 0..8 {
-            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xA001 } else { crc >> 1 };
-        }
-    }
-    crc
-}
-
-/// The firmware's user settings as the BIOS copies them to main memory: the
-/// defaults of a console without a firmware image (English, a touch screen
-/// calibrated so that ADC = 16 × pixel).
-fn user_settings() -> [u8; 0x74] {
-    let mut s = [0u8; 0x74];
-    s[0..2].copy_from_slice(&5u16.to_le_bytes());
-    s[3] = 1;
-    s[4] = 1;
-    for (i, c) in "PIPIT".encode_utf16().enumerate() {
-        s[6 + i * 2..8 + i * 2].copy_from_slice(&c.to_le_bytes());
-    }
-    s[0x1A..0x1C].copy_from_slice(&5u16.to_le_bytes());
-    let calibration: [u8; 12] =
-        [0x00, 0x01, 0x00, 0x01, 0x10, 0x10, 0x00, 0x0F, 0x00, 0x0B, 0xF0, 0xB0];
-    s[0x58..0x64].copy_from_slice(&calibration);
-    s[0x64..0x66].copy_from_slice(&0x0021u16.to_le_bytes());
-    let crc = crc16(0xFFFF, &s[..0x70]);
-    s[0x72..0x74].copy_from_slice(&crc.to_le_bytes());
-    s
-}
-
 impl Nds {
     /// A console with `rom` in the slot. Without BIOS images the ROM boots
     /// directly from its header, with SWIs handled in Rust.
-    pub fn new(rom: Vec<u8>, bios7: Option<Vec<u8>>, bios9: Option<Vec<u8>>) -> Self {
+    pub fn new(
+        rom: Vec<u8>,
+        bios7: Option<Vec<u8>>,
+        bios9: Option<Vec<u8>>,
+        firmware: Option<Vec<u8>>,
+    ) -> Self {
+        let firmware = firmware.unwrap_or_else(firmware::default_image);
         let mut nds = Self {
             arm9: Cpu::new(Arch::V5TE),
             arm7: Cpu::new(Arch::V4T),
-            bus: Bus::new(rom, bios7, bios9),
+            bus: Bus::new(rom, bios7, bios9, firmware),
             frame: blank_frame(),
         };
         nds.bus.video.start(&mut nds.bus.scheduler);
         nds.bus.sound.start(&mut nds.bus.scheduler);
+        nds.bus.scheduler.schedule_at(scheduler::Event::RtcSecond, rtc::CYCLES_PER_SECOND);
         nds.direct_boot();
         nds
     }
@@ -140,7 +118,7 @@ impl Nds {
         put(bus, 0x027F_FC10, &0x5835u16.to_le_bytes());
         put(bus, 0x027F_FC30, &0xFFFFu16.to_le_bytes());
         put(bus, 0x027F_FC40, &0x0001u16.to_le_bytes());
-        put(bus, 0x027F_FC80, &user_settings());
+        put(bus, 0x027F_FC80, &firmware::user_settings_of(&bus.spi.firmware));
         bus.wramcnt = 3;
         bus.postflg = [1, 1];
         bus.video.powcnt1 = 0x820F;
@@ -274,6 +252,37 @@ impl Nds {
 
     pub fn set_keys(&mut self, keys: Keys) {
         self.bus.set_keys(keys);
+    }
+
+    /// The pen on the bottom screen (x 0–255, y 0–191), or lifted.
+    pub fn set_touch(&mut self, touch: Option<(u8, u8)>) {
+        self.bus.set_touch(touch);
+    }
+
+    /// Sets the real-time clock from a Unix timestamp (seconds).
+    pub fn set_time(&mut self, unix_seconds: i64) {
+        let now = self.bus.time[ARM7];
+        self.bus.rtc.set_time(unix_seconds, now);
+    }
+
+    /// The card's save memory, once the game has shown what chip it has.
+    pub fn save_data(&self) -> Option<&[u8]> {
+        self.bus.cart.backup.data()
+    }
+
+    /// A save file from an earlier run; its size says what chip it is.
+    pub fn load_save_data(&mut self, data: &[u8]) {
+        self.bus.cart.backup.load(data);
+    }
+
+    /// Whether the save memory changed since the last call.
+    pub fn take_save_dirty(&mut self) -> bool {
+        self.bus.cart.backup.take_dirty()
+    }
+
+    /// The game asked the power management chip to switch the console off.
+    pub fn powered_off(&self) -> bool {
+        self.bus.spi.powered_off
     }
 
     /// Instructions executed by both CPUs since boot.

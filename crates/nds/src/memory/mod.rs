@@ -18,8 +18,10 @@ use crate::dma::{Dma, Timing};
 use crate::ipc::{self, Ipc};
 use crate::irq::{Interrupt, Irq};
 use crate::math::Math;
+use crate::rtc::{self, Rtc};
 use crate::scheduler::{Event, Scheduler};
 use crate::sound::{self, Sound};
+use crate::spi::Spi;
 use crate::timers::Timers;
 use crate::video::{self, Video, SCREEN_HEIGHT};
 use serde::{Deserialize, Serialize};
@@ -95,15 +97,20 @@ pub struct Bus {
     /// The ARM7's own bits of EXMEMSTAT (0-6).
     pub exmemstat7: u16,
     pub postflg: [u8; 2],
-    pub spicnt: u16,
-    pub rtc: u16,
+    pub spi: Spi,
+    pub rtc: Rtc,
     pub powcnt2: u16,
     pub wifiwaitcnt: u16,
     pub sound: Sound,
 }
 
 impl Bus {
-    pub fn new(rom: Vec<u8>, bios7: Option<Vec<u8>>, bios9: Option<Vec<u8>>) -> Self {
+    pub fn new(
+        rom: Vec<u8>,
+        bios7: Option<Vec<u8>>,
+        bios9: Option<Vec<u8>>,
+        firmware: Vec<u8>,
+    ) -> Self {
         let mut bus = Self {
             scheduler: Scheduler::new(),
             time: [0; 2],
@@ -133,8 +140,8 @@ impl Bus {
             exmemcnt: 0,
             exmemstat7: 0,
             postflg: [0; 2],
-            spicnt: 0,
-            rtc: 0,
+            spi: Spi::new(firmware),
+            rtc: Rtc::new(),
             powcnt2: 0,
             wifiwaitcnt: 0,
             sound: Sound::new(),
@@ -176,6 +183,13 @@ impl Bus {
         self.cart.take_rom_from(&mut other.cart);
         std::mem::swap(&mut self.bios9, &mut other.bios9);
         std::mem::swap(&mut self.bios7, &mut other.bios7);
+        self.spi.take_firmware_from(&mut other.spi);
+    }
+
+    /// The pen on the bottom screen, as pixel coordinates, or lifted.
+    pub fn set_touch(&mut self, touch: Option<(u8, u8)>) {
+        self.spi.touch = touch.map(|(x, y)| (u16::from(x) * 16, u16::from(y) * 16));
+        self.ext_keys = (self.ext_keys & !(1 << 6)) | u8::from(touch.is_none()) << 6;
     }
 
     /// Runs every event due at the scheduler's clock.
@@ -201,6 +215,12 @@ impl Bus {
                     self.dma[owner].trigger(Timing::Card);
                 }
                 Event::AudioSample => self.audio_sample(at),
+                Event::RtcSecond => {
+                    if self.rtc.on_second(at) {
+                        self.raise(ARM7, Interrupt::Rtc);
+                    }
+                    self.scheduler.schedule_at(Event::RtcSecond, at + rtc::CYCLES_PER_SECOND);
+                }
                 Event::MathDone => {}
             }
         }

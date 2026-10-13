@@ -102,6 +102,9 @@ state. The ARM9 is an `Arch::V5TE` core, the ARM7 an `Arch::V4T` one, both from
 | `cart.rs` | DS card | The header (what direct boot loads), ROMCTRL and the data port: plain `B7` reads and the chip id |
 | `ipc.rs` | IPC | IPCSYNC and the two 16-word FIFOs with their interrupts |
 | `sound.rs` | Sound | Sixteen channels (PCM8/16, ADPCM, square, noise) read through the ARM7's view of memory, the mixer, the two captures; one stereo sample per 1024 bus cycles |
+| `spi.rs`, `firmware.rs` | SPI bus | The power management chip, the firmware flash (a default image when the user has none) and the touch screen controller; transfers complete at once, the hold bit keeps a chip selected across bytes |
+| `rtc.rs` | Real-time clock | The bit-banged S-35180 protocol, status and alarm registers, a once-a-second event for its interrupt; time runs on emulated cycles from a Unix time the front-end sets |
+| `backup.rs` | Card saves | The save chip behind AUXSPI: EEPROM (4 Kbit to 512 Kbit) or Flash, told apart by the first write's address bytes or a save file's size; infrared cards' pass-through |
 | `math.rs` | Divider, square root | The ARM9's 280h–2BFh block; results are immediate |
 | `dma.rs`, `timers.rs`, `irq.rs` | Per CPU | The ARM9's eight DMA timings and 21-bit counts, the ARM7's four and 16-bit; 32-bit IE/IF |
 | `bios/` | BIOS | Replacement images with only the exception vectors and interrupt dispatchers; every SWI in `bios/swi.rs`; optional real BIOS images |

@@ -33,6 +33,8 @@ pub enum Event {
     MathDone,
     /// One output audio sample is due.
     AudioSample,
+    /// The real-time clock's second ticks.
+    RtcSecond,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

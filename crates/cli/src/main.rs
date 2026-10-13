@@ -42,6 +42,9 @@ enum Command {
         /// Optional BIOS image (uses the built-in replacement otherwise).
         #[arg(long)]
         bios: Option<PathBuf>,
+        /// Optional DS firmware image (a built-in one with default settings otherwise).
+        #[arg(long)]
+        firmware: Option<PathBuf>,
         /// Load this save file before running and write it back afterwards.
         #[arg(long)]
         save: Option<PathBuf>,
@@ -64,6 +67,10 @@ enum Command {
         /// e.g. `--keys 300=START,330=,600=A+RIGHT`. A key stays held until changed.
         #[arg(long)]
         keys: Option<String>,
+        /// Pen script for the DS: `frame=x:y` presses, `frame=` lifts, separated
+        /// by commas, e.g. `--touch 120=128:96,130=`.
+        #[arg(long)]
+        touch: Option<String>,
         /// Print memory at the end: `ADDR[:LEN]` in hex, e.g. `--peek 03005DBC:4`.
         #[arg(long)]
         peek: Vec<String>,
@@ -128,6 +135,7 @@ fn main() -> Result<()> {
             screenshot,
             wav,
             bios,
+            firmware,
             save,
             regs,
             trace,
@@ -135,12 +143,14 @@ fn main() -> Result<()> {
             trace_after,
             trace7,
             keys,
+            touch,
             peek,
             peek7,
         } => {
             let rom_data = fs::read(&rom).with_context(|| format!("reading {}", rom.display()))?;
             let bios_data = bios.map(fs::read).transpose().context("reading BIOS")?;
-            let mut machine = Machine::open(&rom, rom_data, bios_data);
+            let firmware_data = firmware.map(fs::read).transpose().context("reading firmware")?;
+            let mut machine = Machine::open(&rom, rom_data, bios_data, firmware_data);
             println!("{}", machine.describe());
             if let Some(path) = &save {
                 if let Ok(data) = fs::read(path) {
@@ -148,12 +158,16 @@ fn main() -> Result<()> {
                 }
             }
             let script = keys.as_deref().map(parse_key_script).transpose()?.unwrap_or_default();
+            let pen = touch.as_deref().map(parse_touch_script).transpose()?.unwrap_or_default();
             let mut frame = 0u32;
             let mut audio: Vec<i16> = Vec::new();
             let mut run_to = |machine: &mut Machine, frame: &mut u32, end: u32| {
                 while *frame < end {
                     if let Some((_, keys)) = script.iter().find(|(f, _)| *f == *frame) {
                         machine.set_keys(*keys);
+                    }
+                    if let Some((_, touch)) = pen.iter().find(|(f, _)| *f == *frame) {
+                        machine.set_touch(*touch);
                     }
                     machine.run_frame();
                     if wav.is_some() {
@@ -209,7 +223,7 @@ fn main() -> Result<()> {
         }
         Command::Bench { rom, frames } => {
             let rom_data = fs::read(&rom)?;
-            let mut machine = Machine::open(&rom, rom_data, None);
+            let mut machine = Machine::open(&rom, rom_data, None, None);
             let start = Instant::now();
             for _ in 0..frames {
                 machine.run_frame();
@@ -404,4 +418,26 @@ fn write_wav(path: &PathBuf, samples: &[i16], rate: u32) -> Result<()> {
     }
     fs::write(path, out)?;
     Ok(())
+}
+
+/// `frame=x:y` presses the pen there, `frame=` lifts it.
+/// Pen presses by frame: where it lands, or `None` when it lifts.
+type PenScript = Vec<(u32, Option<(u8, u8)>)>;
+
+fn parse_touch_script(script: &str) -> Result<PenScript> {
+    let mut out = Vec::new();
+    for entry in script.split(',').filter(|e| !e.trim().is_empty()) {
+        let (frame, at) =
+            entry.split_once('=').context("touch script entries look like 120=128:96")?;
+        let frame: u32 = frame.trim().parse().context("bad frame number in touch script")?;
+        let touch = match at.trim() {
+            "" => None,
+            at => {
+                let (x, y) = at.split_once(':').context("touch positions look like x:y")?;
+                Some((x.parse().context("bad touch x")?, y.parse().context("bad touch y")?))
+            }
+        };
+        out.push((frame, touch));
+    }
+    Ok(out)
 }
