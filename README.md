@@ -1,7 +1,7 @@
 # Pipit
 
 A clean, free Game Boy Advance and Game Boy Color emulator that runs in the browser, on your phone and on
-the desktop — from one codebase.
+the desktop — from one codebase. A Nintendo DS core is being built on the same foundations.
 
 - **Accurate.** A from-scratch ARM7TDMI core, cycle-counted memory bus, scanline video
   and full audio, verified against open test ROM suites. Retail games and custom
@@ -17,7 +17,10 @@ the desktop — from one codebase.
 
 ```
 crates/   Rust workspace — the emulator
-  gba/    pipit-gba   the core: cpu/ memory/ video/ audio/ cartridge/ bios/ …
+  arm/    pipit-arm   the ARM interpreter the GBA and DS cores share (ARMv4T and ARMv5TE)
+  gba/    pipit-gba   the GBA core: memory/ video/ audio/ cartridge/ bios/ …
+  gbc/    pipit-gbc   the Game Boy / Game Boy Color core
+  nds/    pipit-nds   the Nintendo DS core (in progress: both CPUs, the machine, text backgrounds)
   wasm/   pipit-wasm  WebAssembly bindings for the web app
   cli/    pipit-cli   headless runner: tests, screenshots, benchmarks
 web/      The app (Vite + TypeScript PWA): ui/ features/ platform/

@@ -266,6 +266,7 @@ dependencies = [
  "clap",
  "pipit-gba",
  "pipit-gbc",
+ "pipit-nds",
  "png",
 ]
 
@@ -292,6 +293,16 @@ name = "pipit-gbc"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "pipit-common",
+ "serde",
+]
+
+[[package]]
+name = "pipit-nds"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "pipit-arm",
  "pipit-common",
  "serde",
 ]

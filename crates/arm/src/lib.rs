@@ -9,6 +9,7 @@
 //! opcodes already fetched behind it.
 
 mod arm;
+pub mod swi;
 mod thumb;
 
 use serde::{Deserialize, Serialize};

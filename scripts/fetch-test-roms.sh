@@ -23,4 +23,7 @@ if [ ! -d mooneye ]; then
   fetch "https://gekkio.fi/files/mooneye-test-suite/$MTS/$MTS.zip" mooneye.zip
   unzip -q mooneye.zip && mv "$MTS" mooneye && rm mooneye.zip
 fi
+# Nintendo DS
+mkdir -p nds
+fetch https://raw.githubusercontent.com/RockPolish/rockwrestler/master/rockwrestler.nds nds/rockwrestler.nds # CPU, IPC, memory control, math (WIP)
 echo "Test ROMs ready in $(pwd)"

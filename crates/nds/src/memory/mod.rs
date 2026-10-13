@@ -1,0 +1,332 @@
+//! What both CPUs share, and the view each one runs on.
+//!
+//! The ARM9 and ARM7 see different memory maps over the same hardware: `View9`
+//! and `View7` implement `pipit_arm::Bus` for each over the one `Bus` here.
+//! Each CPU keeps its own clock (`time`) in ARM9 cycles; the scheduler's clock
+//! is where the last slice ended, and events run between slices.
+
+pub mod arm7;
+pub mod arm9;
+mod io;
+
+pub use arm7::View7;
+pub use arm9::{Cp15, View9};
+
+use crate::bios::{self, BIOS7_SIZE, BIOS9_SIZE};
+use crate::cart::Cart;
+use crate::dma::{Dma, Timing};
+use crate::ipc::{self, Ipc};
+use crate::irq::{Interrupt, Irq};
+use crate::math::Math;
+use crate::scheduler::{Event, Scheduler};
+use crate::timers::Timers;
+use crate::video::{self, Video, SCREEN_HEIGHT};
+use serde::{Deserialize, Serialize};
+
+pub const ARM9: usize = 0;
+pub const ARM7: usize = 1;
+
+/// How far one CPU runs before the other gets its turn, in ARM9 cycles.
+pub const SLICE: u64 = 64;
+
+/// Which keys are held, one bit each (the KEYINPUT order, then X and Y).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Keys(pub u16);
+
+impl Keys {
+    pub const A: u16 = 1 << 0;
+    pub const B: u16 = 1 << 1;
+    pub const SELECT: u16 = 1 << 2;
+    pub const START: u16 = 1 << 3;
+    pub const RIGHT: u16 = 1 << 4;
+    pub const LEFT: u16 = 1 << 5;
+    pub const UP: u16 = 1 << 6;
+    pub const DOWN: u16 = 1 << 7;
+    pub const R: u16 = 1 << 8;
+    pub const L: u16 = 1 << 9;
+    pub const X: u16 = 1 << 10;
+    pub const Y: u16 = 1 << 11;
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Bus {
+    pub scheduler: Scheduler,
+    /// Each CPU's own clock, in ARM9 cycles.
+    pub time: [u64; 2],
+    /// Where the current slice ends; a halted CPU skips straight to it.
+    pub target: u64,
+    /// The address of each CPU's executing instruction (for debugging).
+    pub pc: [u32; 2],
+    #[serde(with = "pipit_common::snapshot::bytes_box")]
+    pub main_ram: Box<[u8; 0x40_0000]>,
+    #[serde(with = "pipit_common::snapshot::bytes_box")]
+    pub shared_wram: Box<[u8; 0x8000]>,
+    /// WRAMCNT: how the shared WRAM is split (0 all ARM9 … 3 all ARM7).
+    pub wramcnt: u8,
+    #[serde(with = "pipit_common::snapshot::bytes_box")]
+    pub arm7_wram: Box<[u8; 0x1_0000]>,
+    #[serde(with = "pipit_common::snapshot::bytes_box")]
+    pub itcm: Box<[u8; 0x8000]>,
+    #[serde(with = "pipit_common::snapshot::bytes_box")]
+    pub dtcm: Box<[u8; 0x4000]>,
+    pub cp15: Cp15,
+    #[serde(skip, default = "bios::stub9")]
+    pub bios9: Box<[u8; BIOS9_SIZE]>,
+    #[serde(skip, default = "bios::stub7")]
+    pub bios7: Box<[u8; BIOS7_SIZE]>,
+    /// Whether each CPU's SWIs are handled in Rust (no user BIOS for it).
+    pub hle: [bool; 2],
+    /// An IntrWait is in progress on this CPU (see `bios::swi`).
+    pub intr_wait_continuing: [bool; 2],
+    pub video: Video,
+    pub cart: Cart,
+    pub ipc: Ipc,
+    pub irq: [Irq; 2],
+    pub timers: [Timers; 2],
+    pub dma: [Dma; 2],
+    pub math: Math,
+    /// KEYINPUT: bits 0-9, active low.
+    pub keys: u16,
+    /// EXTKEYIN (ARM7): X, Y, the pen and the lid, active low.
+    pub ext_keys: u8,
+    pub keycnt: [u16; 2],
+    pub exmemcnt: u16,
+    /// The ARM7's own bits of EXMEMSTAT (0-6).
+    pub exmemstat7: u16,
+    pub postflg: [u8; 2],
+    pub spicnt: u16,
+    pub rtc: u16,
+    pub powcnt2: u16,
+    pub wifiwaitcnt: u16,
+    /// The ARM7's sound registers (400h–51Fh), kept raw until there is a mixer.
+    #[serde(with = "pipit_common::snapshot::bytes_box")]
+    pub sound: Box<[u8; 0x120]>,
+}
+
+impl Bus {
+    pub fn new(rom: Vec<u8>, bios7: Option<Vec<u8>>, bios9: Option<Vec<u8>>) -> Self {
+        let mut bus = Self {
+            scheduler: Scheduler::new(),
+            time: [0; 2],
+            target: 0,
+            pc: [0; 2],
+            main_ram: Box::new([0; 0x40_0000]),
+            shared_wram: Box::new([0; 0x8000]),
+            wramcnt: 0,
+            arm7_wram: Box::new([0; 0x1_0000]),
+            itcm: Box::new([0; 0x8000]),
+            dtcm: Box::new([0; 0x4000]),
+            cp15: Cp15::default(),
+            bios9: bios::stub9(),
+            bios7: bios::stub7(),
+            hle: [bios9.is_none(), bios7.is_none()],
+            intr_wait_continuing: [false; 2],
+            video: Video::new(),
+            cart: Cart::new(rom),
+            ipc: Ipc::new(),
+            irq: [Irq::new(), Irq::new()],
+            timers: [Timers::new(0), Timers::new(4)],
+            dma: [Dma::new(true), Dma::new(false)],
+            math: Math::default(),
+            keys: 0x03FF,
+            ext_keys: 0x7F,
+            keycnt: [0; 2],
+            exmemcnt: 0,
+            exmemstat7: 0,
+            postflg: [0; 2],
+            spicnt: 0,
+            rtc: 0,
+            powcnt2: 0,
+            wifiwaitcnt: 0,
+            sound: Box::new([0; 0x120]),
+        };
+        if let Some(image) = bios9 {
+            let n = image.len().min(BIOS9_SIZE);
+            bus.bios9[..n].copy_from_slice(&image[..n]);
+        }
+        if let Some(image) = bios7 {
+            let n = image.len().min(BIOS7_SIZE);
+            bus.bios7[..n].copy_from_slice(&image[..n]);
+        }
+        bus
+    }
+
+    #[inline(always)]
+    pub fn raise(&mut self, cpu: usize, source: Interrupt) {
+        self.irq[cpu].raise(source);
+    }
+
+    /// Which CPU the cartridge slot belongs to (EXMEMCNT bit 11).
+    pub fn card_owner(&self) -> usize {
+        if self.exmemcnt & (1 << 11) != 0 {
+            ARM7
+        } else {
+            ARM9
+        }
+    }
+
+    pub fn set_keys(&mut self, keys: Keys) {
+        self.keys = !keys.0 & 0x03FF;
+        let x = keys.0 & Keys::X != 0;
+        let y = keys.0 & Keys::Y != 0;
+        self.ext_keys = (self.ext_keys & 0xFC) | u8::from(!x) | u8::from(!y) << 1;
+    }
+
+    /// Restoring a state keeps the ROM and BIOS images of the running machine.
+    pub(crate) fn take_images_from(&mut self, other: &mut Bus) {
+        self.cart.take_rom_from(&mut other.cart);
+        std::mem::swap(&mut self.bios9, &mut other.bios9);
+        std::mem::swap(&mut self.bios7, &mut other.bios7);
+    }
+
+    /// Runs every event due at the scheduler's clock.
+    pub fn run_events(&mut self) {
+        while let Some((event, at)) = self.scheduler.pop_due() {
+            match event {
+                Event::HBlankStart => {
+                    let signals = self.video.on_hblank_start(at, &mut self.scheduler);
+                    self.video_signals(signals);
+                }
+                Event::HBlankEnd => {
+                    let signals = self.video.on_hblank_end(at, &mut self.scheduler);
+                    self.video_signals(signals);
+                }
+                Event::Timer(i) => {
+                    let cpu = usize::from(i / 4);
+                    let (timers, irq) = (&mut self.timers[cpu], &mut self.irq[cpu]);
+                    timers.on_overflow(usize::from(i % 4), at, &mut self.scheduler, irq);
+                }
+                Event::CardWord => {
+                    self.cart.on_word();
+                    let owner = self.card_owner();
+                    self.dma[owner].trigger(Timing::Card);
+                }
+                Event::MathDone | Event::AudioSample => {}
+            }
+        }
+    }
+
+    fn video_signals(&mut self, signals: video::Signals) {
+        for cpu in 0..2 {
+            let bits = signals.irq[cpu];
+            if bits & 1 != 0 {
+                self.raise(cpu, Interrupt::VBlank);
+            }
+            if bits & 2 != 0 {
+                self.raise(cpu, Interrupt::HBlank);
+            }
+            if bits & 4 != 0 {
+                self.raise(cpu, Interrupt::VCount);
+            }
+        }
+        let visible = self.video.vcount < SCREEN_HEIGHT as u16;
+        if signals.vblank_started {
+            self.dma[ARM9].trigger(Timing::VBlank);
+            self.dma[ARM7].trigger(Timing::VBlank);
+        }
+        if signals.hblank_started && visible {
+            self.dma[ARM9].trigger(Timing::HBlank);
+        }
+        if signals.line_started && visible {
+            self.dma[ARM9].trigger(Timing::DisplayStart);
+        }
+    }
+
+    /// Interrupts an IPC register access asked for.
+    pub(crate) fn apply_ipc(&mut self, cpu: usize, s: ipc::Signals) {
+        if s.my_send_empty {
+            self.raise(cpu, Interrupt::IpcSendEmpty);
+        }
+        if s.my_recv {
+            self.raise(cpu, Interrupt::IpcRecv);
+        }
+        if s.other_send_empty {
+            self.raise(cpu ^ 1, Interrupt::IpcSendEmpty);
+        }
+        if s.other_recv {
+            self.raise(cpu ^ 1, Interrupt::IpcRecv);
+        }
+        if s.other_sync {
+            self.raise(cpu ^ 1, Interrupt::IpcSync);
+        }
+    }
+
+    /// A card transfer may just have ended: raise its interrupt if enabled.
+    pub(crate) fn card_check(&mut self) {
+        if self.cart.finished {
+            self.cart.finished = false;
+            if self.cart.auxspicnt & (1 << 14) != 0 {
+                let owner = self.card_owner();
+                self.raise(owner, Interrupt::CardDone);
+            }
+        }
+    }
+}
+
+/// One CPU's view of the bus: `pipit_arm::Bus` plus which CPU it is.
+pub trait View: pipit_arm::Bus {
+    const CPU: usize;
+    fn bus(&mut self) -> &mut Bus;
+}
+
+/// Runs the DMA channels of `V`'s CPU that are ready, in priority order.
+pub fn run_dma<V: View>(view: &mut V) {
+    let cpu = V::CPU;
+    let pending = view.bus().dma[cpu].take_pending();
+    for (n, &ready) in pending.iter().enumerate() {
+        if !ready {
+            continue;
+        }
+        let dma = &view.bus().dma[cpu];
+        let ch = dma.channels[n];
+        if !ch.enabled() || ch.remaining == 0 {
+            continue;
+        }
+        let timing = dma.timing(n, &ch);
+        let count = dma.count_for(&ch);
+        let word = ch.word_size();
+        let step: u32 = if word { 4 } else { 2 };
+        let src_step = match ch.src_control() {
+            0 | 3 => step,
+            1 => step.wrapping_neg(),
+            _ => 0,
+        };
+        let dst_step = match ch.dst_control() {
+            0 | 3 => step,
+            1 => step.wrapping_neg(),
+            _ => 0,
+        };
+        let units = if timing == Timing::Card { 1 } else { ch.remaining };
+        let (mut src, mut dst) = (ch.src, ch.dst);
+        for i in 0..units {
+            let seq = i != 0;
+            if word {
+                let v = view.read32(src, seq);
+                view.write32(dst, v, seq);
+            } else {
+                let v = view.read16(src, seq);
+                view.write16(dst, v, seq);
+            }
+            src = src.wrapping_add(src_step);
+            dst = dst.wrapping_add(dst_step);
+        }
+        let bus = view.bus();
+        let ch = &mut bus.dma[cpu].channels[n];
+        ch.src = src;
+        ch.dst = dst;
+        ch.remaining -= units;
+        if ch.remaining == 0 {
+            if ch.repeat() && timing != Timing::Immediate {
+                ch.remaining = count;
+                if ch.dst_control() == 3 {
+                    ch.dst = ch.dad & 0x0FFF_FFFF;
+                }
+            } else {
+                ch.control &= !(1 << 31);
+            }
+            if ch.irq() {
+                bus.irq[cpu].raise(Interrupt::dma(n));
+            }
+        }
+    }
+}

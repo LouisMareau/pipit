@@ -19,6 +19,17 @@ Checked items are done and covered by tests.
 - [ ] Cheat codes (GameShark / CodeBreaker)
 - [x] Link cable: multi-play mode, up to four consoles in lockstep in one process (`pipit link`; Emerald trades with itself headless, see [link-testing.md](link-testing.md))
 
+## Nintendo DS core (`crates/nds`, in progress)
+
+- [x] Stage 1, the machine: both CPUs on the shared ARM core (`crates/arm`: ARMv4T for the ARM7, ARMv5TE for the ARM9, each with its own clock, run in short slices), their memory maps with the TCMs, the shared WRAM split and the VRAM bank mapping, interrupts, timers, DMA, IPC sync and FIFOs, the card interface, the divider and square root, and a direct boot from the ROM header with every SWI in Rust (rockwrestler: all 25 tests pass, `scripts/rockwrestler.mjs`)
+- [x] Display, first part: LCD timing, the VRAM display mode and text backgrounds (what test ROMs and homebrew menus use)
+- [ ] Stage 2, the 2D engines in full: affine and bitmap backgrounds, objects, windows, blending, extended palettes, capture, the main-memory display FIFO
+- [ ] Stage 3, sound: the 16 channels and capture, through the existing audio path
+- [ ] Stage 4, the rest of the hardware: SPI (firmware, touch screen, power management), RTC, the card's save chips (EEPROM, Flash), the GBA slot
+- [ ] Stage 5, the 3D engine (geometry and rendering)
+- [ ] The web app: DS games in the library, two screens, touch on the bottom one, save states and saves
+- [ ] Playing together: local wireless between the consoles of a link, as the adapter does for the GBA
+
 ## Game Boy / Game Boy Color core
 
 - [x] SM83 CPU (Blargg's `cpu_instrs`, `instr_timing`, `mem_timing`)

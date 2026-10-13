@@ -1,22 +1,26 @@
-//! One console of either kind, for the commands that work on both. The file's
-//! extension decides: `.gb` and `.gbc` are Game Boy games, the rest Game Boy
-//! Advance.
+//! One console of any kind, for the commands that work on all. The file's
+//! extension decides: `.gb` and `.gbc` are Game Boy games, `.nds` DS games,
+//! the rest Game Boy Advance.
 
 use std::path::Path;
 
 use pipit_gba::{Gba, Keys};
 use pipit_gbc::Gbc;
+use pipit_nds::Nds;
 
 #[allow(clippy::large_enum_variant)]
 pub enum Machine {
     Gba(Gba),
     Gbc(Gbc),
+    Nds(Box<Nds>),
 }
 
 impl Machine {
     pub fn open(path: &Path, rom: Vec<u8>, bios: Option<Vec<u8>>) -> Self {
         if is_game_boy(path) {
             Machine::Gbc(Gbc::new(rom))
+        } else if is_ds(path) {
+            Machine::Nds(Box::new(Nds::new(rom, None, None)))
         } else {
             Machine::Gba(Gba::new(rom, bios))
         }
@@ -26,6 +30,17 @@ impl Machine {
         match self {
             Machine::Gba(g) => Self::describe_gba(g),
             Machine::Gbc(g) => Self::describe_gbc(g),
+            Machine::Nds(n) => format!(
+                "{} [{}] ARM9 {:X}h bytes at {:08X} (entry {:08X}), ARM7 {:X}h bytes at {:08X} (entry {:08X})",
+                n.title(),
+                n.game_code(),
+                n.bus.cart.arm9.size,
+                n.bus.cart.arm9.ram_address,
+                n.bus.cart.arm9.entry,
+                n.bus.cart.arm7.size,
+                n.bus.cart.arm7.ram_address,
+                n.bus.cart.arm7.entry,
+            ),
         }
     }
 
@@ -46,6 +61,7 @@ impl Machine {
         match self {
             Machine::Gba(g) => g.run_frame(),
             Machine::Gbc(g) => g.run_frame(),
+            Machine::Nds(n) => n.run_frame(),
         }
     }
 
@@ -53,6 +69,7 @@ impl Machine {
         match self {
             Machine::Gba(g) => g.step(),
             Machine::Gbc(g) => g.step(),
+            Machine::Nds(n) => n.step(),
         }
     }
 
@@ -61,6 +78,8 @@ impl Machine {
             Machine::Gba(g) => g.set_keys(keys),
             // The Game Boy's eight keys are the Advance's low byte.
             Machine::Gbc(g) => g.set_keys(keys.0 as u8),
+            // The DS adds X and Y above the Advance's ten.
+            Machine::Nds(n) => n.set_keys(pipit_nds::Keys(keys.0)),
         }
     }
 
@@ -68,6 +87,7 @@ impl Machine {
         match self {
             Machine::Gba(g) => g.framebuffer(),
             Machine::Gbc(g) => g.framebuffer(),
+            Machine::Nds(n) => n.framebuffer(),
         }
     }
 
@@ -75,6 +95,9 @@ impl Machine {
         match self {
             Machine::Gba(_) => (pipit_gba::SCREEN_WIDTH as u32, pipit_gba::SCREEN_HEIGHT as u32),
             Machine::Gbc(_) => (pipit_gbc::SCREEN_WIDTH as u32, pipit_gbc::SCREEN_HEIGHT as u32),
+            Machine::Nds(_) => {
+                (pipit_nds::SCREEN_WIDTH as u32, pipit_nds::SCREEN_HEIGHT as u32 * 2)
+            }
         }
     }
 
@@ -82,6 +105,7 @@ impl Machine {
         match self {
             Machine::Gba(g) => g.load_save_data(data),
             Machine::Gbc(g) => g.load_save_data(data),
+            Machine::Nds(_) => {}
         }
     }
 
@@ -89,6 +113,7 @@ impl Machine {
         match self {
             Machine::Gba(g) => g.save_data().map(<[u8]>::to_vec),
             Machine::Gbc(g) => g.save_data(),
+            Machine::Nds(_) => None,
         }
     }
 
@@ -96,6 +121,12 @@ impl Machine {
         match self {
             Machine::Gba(g) => g.bus.load8(addr),
             Machine::Gbc(g) => g.bus.peek(addr as u16),
+            Machine::Nds(n) => {
+                let time = n.bus.time;
+                let value = n.bus.read9_8(addr, true);
+                n.bus.time = time;
+                value
+            }
         }
     }
 
@@ -103,6 +134,7 @@ impl Machine {
         match self {
             Machine::Gba(g) => g.cpu.instructions,
             Machine::Gbc(g) => g.cpu.instructions,
+            Machine::Nds(n) => n.instructions(),
         }
     }
 
@@ -135,6 +167,20 @@ impl Machine {
                 u8::from(g.cpu.ime),
                 g.bus.cycles
             ),
+            Machine::Nds(n) => {
+                let mut out = String::new();
+                for (name, cpu) in [("ARM9", &n.arm9), ("ARM7", &n.arm7)] {
+                    out.push_str(&format!("{name}:\n"));
+                    for (i, v) in cpu.regs.iter().enumerate() {
+                        out.push_str(&format!("r{i:<2}={v:08X} "));
+                        if i % 4 == 3 {
+                            out.push('\n');
+                        }
+                    }
+                    out.push_str(&format!("cpsr={:08X} pc={:08X}\n", cpu.cpsr, cpu.pc()));
+                }
+                out + &format!("cycles={}", n.bus.scheduler.now())
+            }
         }
     }
 
@@ -161,8 +207,25 @@ impl Machine {
                 g.cpu.hl(),
                 g.cpu.sp
             ),
+            Machine::Nds(n) => {
+                let r = &n.arm9.regs;
+                format!(
+                    "{:08X} {:08X} [{}] r0={:08X} r1={:08X} r2={:08X} r3={:08X} r12={:08X} sp={:08X} lr={:08X} cpsr={:08X} | ARM7 {:08X}",
+                    n.arm9.pc(),
+                    n.arm9.next_opcode(),
+                    if n.arm9.is_thumb() { "T" } else { "A" },
+                    r[0], r[1], r[2], r[3], r[12], r[13], r[14], n.arm9.cpsr, n.arm7.pc()
+                )
+            }
         }
     }
+}
+
+pub fn is_ds(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(),
+        Some("nds")
+    )
 }
 
 /// Consoles on a link cable, of either kind.

@@ -11,7 +11,11 @@ Pipit is split into a pure emulation core and thin front-ends around it.
             │  crates/wasm  crates/cli │   bindings / tooling
             └────────────┬─────────────┘
             ┌────────────▼─────────────┐
-            │  crates/gba   crates/gbc │   the GBA; the Game Boy (Color)
+            │  crates/gba   crates/gbc │   the GBA; the Game Boy (Color);
+            │  crates/nds              │   the DS (in progress)
+            └────────────┬─────────────┘
+            ┌────────────▼─────────────┐
+            │  crates/arm              │   the ARM interpreter the GBA and DS share
             └──────────────────────────┘
 ```
 
@@ -81,6 +85,36 @@ with its four shades. No boot ROM is used. Tests: Blargg's `cpu_instrs`,
 `instr_timing` and `mem_timing`, both acid2 pictures, and the mooneye acceptance
 tests, of which the ones about where within an instruction an access lands are
 listed as known failures.
+
+## The DS core (`crates/nds`)
+
+Two CPUs share one machine. `memory/mod.rs` holds everything both see (main RAM,
+the shared WRAM and its split, the TCMs, VRAM, the card, IPC, one interrupt
+controller, timer set and DMA controller per CPU); `memory/arm9.rs` and
+`memory/arm7.rs` are the two memory maps, each a `pipit_arm::Bus` over that
+state. The ARM9 is an `Arch::V5TE` core, the ARM7 an `Arch::V4T` one, both from
+`crates/arm`.
+
+| Module | Hardware | Notes |
+|--------|----------|-------|
+| `memory/` | Buses | The shared state, the two maps, the I/O registers as each CPU sees them, the DMA runner |
+| `video/` | LCD, the two 2D engines | Scanline timing, the VRAM banks and their page tables (`vram.rs`), rendering (`render.rs`: display modes and text backgrounds so far) |
+| `cart.rs` | DS card | The header (what direct boot loads), ROMCTRL and the data port: plain `B7` reads and the chip id |
+| `ipc.rs` | IPC | IPCSYNC and the two 16-word FIFOs with their interrupts |
+| `math.rs` | Divider, square root | The ARM9's 280h–2BFh block; results are immediate |
+| `dma.rs`, `timers.rs`, `irq.rs` | Per CPU | The ARM9's eight DMA timings and 21-bit counts, the ARM7's four and 16-bit; 32-bit IE/IF |
+| `bios/` | BIOS | Replacement images with only the exception vectors and interrupt dispatchers; every SWI in `bios/swi.rs`; optional real BIOS images |
+| `scheduler.rs` | — | The shared clock, in ARM9 cycles (two per bus cycle) |
+
+### Timing model
+
+Each CPU has its own clock in ARM9 cycles (the ARM7 adds two per bus cycle). They
+run alternately in slices of 64 cycles or up to the next event, whichever is
+sooner; a halted CPU jumps to the end of the slice. Between slices the scheduler
+advances and runs the events that came due (scanlines, timers, card words), so
+nothing one CPU does is seen by the other more than a slice late. The ARM9's
+caches are not modelled: accesses outside the TCMs cost one bus cycle per
+16-bit transfer, plus one for a non-sequential one to main memory.
 
 ## Front-ends
 

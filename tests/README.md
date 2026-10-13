@@ -9,6 +9,9 @@
 Game ROMs are never part of the repository. To check a real game, run it with
 `pipit-cli` and compare against a reference emulator by hand.
 
+The DS core is checked with RockPolish's rockwrestler (`roms/nds/`): `node
+scripts/rockwrestler.mjs` drives its menu headless and reports every sub-test.
+
 Run everything with:
 
 ```bash

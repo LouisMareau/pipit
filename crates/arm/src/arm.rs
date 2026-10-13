@@ -590,9 +590,9 @@ impl Cpu {
         let rn = ((op >> 16) & 0xF) as usize;
         let mut list = op & 0xFFFF;
 
-        // An empty list transfers PC alone and moves the base by 16 words.
+        // An empty list moves the base by 16 words; the ARM7 also transfers PC.
         let empty = list == 0;
-        if empty {
+        if empty && self.arch == Arch::V4T {
             list = 1 << 15;
         }
         let count = if empty { 16 } else { list.count_ones() };
@@ -613,9 +613,15 @@ impl Cpu {
         let mut seq = false;
 
         if load {
-            // Writeback first: a base register that is also loaded ends up with
-            // the loaded value, not the written-back one.
-            if writeback {
+            // A base register that is also loaded: the ARM7 keeps the loaded
+            // value; the ARM9 keeps the written-back one unless the base is the
+            // last register (and not the only one) in the list.
+            let base_in_list = list & (1 << rn) != 0;
+            let late_writeback = writeback
+                && base_in_list
+                && self.arch == Arch::V5TE
+                && (list == 1 << rn || list & !((2u32 << rn) - 1) != 0);
+            if writeback && !late_writeback {
                 self.regs[rn] = final_base;
             }
             for r in 0..16 {
@@ -643,6 +649,9 @@ impl Cpu {
                     self.regs[r] = value;
                 }
             }
+            if late_writeback {
+                self.regs[rn] = final_base;
+            }
             bus.idle(1);
         } else {
             let mut first = true;
@@ -654,6 +663,9 @@ impl Cpu {
                     self.regs[15].wrapping_add(4)
                 } else if user_bank {
                     self.user_reg(r)
+                } else if r == rn && self.arch == Arch::V5TE {
+                    // The ARM9 stores the base's old value wherever it is in the list.
+                    base
                 } else {
                     self.regs[r]
                 };
@@ -666,6 +678,9 @@ impl Cpu {
                     self.regs[rn] = final_base;
                     first = false;
                 }
+            }
+            if writeback {
+                self.regs[rn] = final_base;
             }
         }
         self.next_seq = false;

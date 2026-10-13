@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/common", "crates/arm", "crates/gba", "crates/gbc", "crates/wasm", "crates/cli"]
+members = ["crates/common", "crates/arm", "crates/gba", "crates/nds", "crates/gbc", "crates/wasm", "crates/cli"]
 # The desktop shell is its own Cargo project: Tauri's dependency tree stays out
 # of the core's builds and tests.
 exclude = ["desktop/src-tauri"]
@@ -17,6 +17,7 @@ authors = ["Loup Mareau"]
 pipit-common = { path = "crates/common" }
 pipit-arm = { path = "crates/arm" }
 pipit-gba = { path = "crates/gba" }
+pipit-nds = { path = "crates/nds" }
 pipit-gbc = { path = "crates/gbc" }
 serde = { version = "1", features = ["derive"] }
 bincode = "1.3"
