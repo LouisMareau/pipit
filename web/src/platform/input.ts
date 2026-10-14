@@ -84,6 +84,8 @@ export class Input {
   private pollTimer: number | null = null;
   private pollCount = 0;
   private detected: GamepadInfo[] = [];
+  /** What each listed pad reported when it appeared: a button stuck down or an axis resting off centre is not input. */
+  private rest = new Map<number, { pressed: boolean[]; axes: number[] }>();
   private active: number | null = null;
   private enabled = false;
   /** The keyboard drives the game only while one is shown; the library and its dialogs type normally. */
@@ -314,6 +316,12 @@ export class Input {
       detected.every((p, i) => p.index === this.detected[i]?.index && p.id === this.detected[i]?.id);
     if (same) return;
     this.detected = detected;
+    for (const index of [...this.rest.keys()]) if (!detected.some((p) => p.index === index)) this.rest.delete(index);
+    for (const pad of pads) {
+      if (pad && !this.rest.has(pad.index)) {
+        this.rest.set(pad.index, { pressed: pad.buttons.map((b) => b.value > 0.5), axes: [...pad.axes] });
+      }
+    }
 
     if (this.active !== null && !detected.some((p) => p.index === this.active)) {
       this.active = null;
@@ -341,9 +349,17 @@ export class Input {
       if (++this.pollCount % 30 === 0) this.refreshGamepads();
       if (this.active === null) {
         // The first listed controller to show input wakes up as the input device.
+        // A clear press of a button that was up when the pad appeared, or a
+        // stick moved well away from where it rested: noise and stuck inputs
+        // from virtual or idle devices never wake one.
         const woken = this.detected.find((p) => {
           const pad = navigator.getGamepads()[p.index];
-          return pad !== null && pad !== undefined && (pad.buttons.some((b) => b.pressed) || pad.axes.some((a) => Math.abs(a) > 0.5));
+          const rest = this.rest.get(p.index);
+          if (!pad || !rest) return false;
+          return (
+            pad.buttons.some((b, i) => b.value > 0.75 && !rest.pressed[i]) ||
+            pad.axes.some((a, i) => Math.abs(a - (rest.axes[i] ?? 0)) > 0.5)
+          );
         });
         if (woken) this.setActiveGamepad(woken.index);
         return;
@@ -367,7 +383,9 @@ export class Input {
       let pause = false;
       if (this.enabled) {
         for (const [action, index] of Object.entries(this.mapping.buttons) as [ControllerAction, number][]) {
-          if (!pad.buttons[index]?.pressed) continue;
+          // Half travel counts as a press: a trigger drifting near its rest
+          // position must not flicker fast-forward on and off.
+          if ((pad.buttons[index]?.value ?? 0) <= 0.5) continue;
           switch (action) {
             case "FastForward":
               fastForward = true;
