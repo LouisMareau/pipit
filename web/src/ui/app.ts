@@ -262,6 +262,9 @@ export class App {
     this.touch.onChange = (keys) => this.input.setTouch(keys);
     this.wireScreenPen();
 
+    // Nothing in the game area opens a context menu: a long press on a phone
+    // would otherwise buzz and pop one up over the controls or the screen.
+    this.player.querySelector(".stage")!.addEventListener("contextmenu", (e) => e.preventDefault());
     // Audio can only start from a user gesture.
     const unlock = () => this.audio.resume();
     window.addEventListener("pointerdown", unlock, { passive: true });
@@ -615,7 +618,8 @@ export class App {
       }
       // Worst frame-to-frame gap of the last second, for spotting stutter.
       fpsLabel.dataset["maxGap"] = String(maxGapMs);
-      fpsLabel.title = `longest pause between frames in the last second: ${maxGapMs} ms`;
+      const pacing = this.pacer.locked ? `one frame every ${this.pacer.locked} refresh${this.pacer.locked > 1 ? "es" : ""}` : "frames timed by the clock";
+      fpsLabel.title = `longest pause between frames in the last second: ${maxGapMs} ms; display ${Math.round(this.pacer.refreshHz)} Hz, ${pacing}`;
     });
     this.emulator.on("slot2Save", (data) => {
       if (this.slot2RomId) void storage.putSave(this.slot2RomId, data);
