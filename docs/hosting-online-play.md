@@ -7,8 +7,13 @@ Playing together needs two services that Pipit does not run for you:
   between the two browsers; the game traffic goes directly from one to the other.
 - A **relay** (a TURN server), only when a direct connection is impossible
   because both players sit behind strict NATs (some mobile carriers, some
-  offices). Without one, those pairs simply fail to connect. Relayed traffic
-  passes through the server, so this costs bandwidth.
+  offices), or because the two devices cannot reach each other at all: a
+  phone on mobile data talking to a PC at home, a Wi-Fi that keeps its
+  devices apart from one another, or a newer Android that blocks the
+  browser's access to the local network (check the browser's app
+  permissions). Without a relay, those pairs fail to connect; Pipit says so
+  after thirty seconds. Relayed traffic passes through the server, so this
+  costs bandwidth.
 
 Both can run on one small machine with [`server/docker-compose.yml`](../server/docker-compose.yml):
 

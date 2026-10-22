@@ -184,16 +184,45 @@ function listenPeer(code: string, settings: ConnectionSettings): Pending<Listene
   return { ready, cancel: () => peer.destroy() };
 }
 
+/** How long the direct connection may take to open once the server has introduced the devices. */
+const CONNECT_TIMEOUT_MS = 30_000;
+const NO_ROUTE =
+  "The devices found each other but could not open a direct connection. They may not be able to reach " +
+  "each other on this network: a phone on mobile data, a Wi-Fi that keeps its devices apart, or a newer " +
+  "Android that blocks the browser's access to the local network (check the browser's app permissions). " +
+  "A relay gets round all of these: see the hosting guide in the connection settings.";
+
 function connectPeer(code: string, settings: ConnectionSettings): Pending<Transport> {
   const peer = new Peer(peerOptions(settings));
+  let timer: ReturnType<typeof setTimeout> | null = null;
   const ready = new Promise<Transport>((resolve, reject) => {
-    peer.on("error", (error) => reject(describe(error)));
+    const fail = (error: Error) => {
+      if (timer !== null) clearTimeout(timer);
+      reject(error);
+    };
+    peer.on("error", (error) => fail(describe(error)));
     peer.on("open", () => {
       const conn = peer.connect(peerId(code), { reliable: true });
-      conn.on("open", () => resolve(new PeerTransport(conn, peer)));
+      // The server knows the host; the direct connection must now open, and
+      // when it cannot (no route between the devices) nothing says so by itself.
+      timer = setTimeout(() => fail(new Error(NO_ROUTE)), CONNECT_TIMEOUT_MS);
+      conn.on("open", () => {
+        if (timer !== null) clearTimeout(timer);
+        resolve(new PeerTransport(conn, peer));
+      });
+      conn.on("error", (error) => fail(new Error(error.message || NO_ROUTE)));
+      conn.on("iceStateChanged", (state) => {
+        if (state === "failed") fail(new Error(NO_ROUTE));
+      });
     });
   });
-  return { ready, cancel: () => peer.destroy() };
+  return {
+    ready,
+    cancel: () => {
+      if (timer !== null) clearTimeout(timer);
+      peer.destroy();
+    },
+  };
 }
 
 /**

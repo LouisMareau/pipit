@@ -422,8 +422,14 @@ export class TransferGuest {
   private constructor(private readonly code: string) {}
 
   /** Connects to the sender under `code`; the guest reports through its callbacks. */
-  static async connect(code: string, local: boolean, settings: ConnectionSettings): Promise<TransferGuest> {
+  static async connect(
+    code: string,
+    local: boolean,
+    settings: ConnectionSettings,
+    onStatus: (text: string) => void = () => {},
+  ): Promise<TransferGuest> {
     const guest = new TransferGuest(code);
+    guest.onStatus = onStatus;
     const transport = await connect(codeFor(code), local, settings).ready;
     const pipe = new Pipe(transport);
     guest.pipe = pipe;

@@ -370,9 +370,8 @@ export class App {
   private async startReceiving(code: string) {
     this.transferDialog.setStatus("Connecting…");
     try {
-      const guest = await TransferGuest.connect(code, this.localLink, this.settings.connection);
+      const guest = await TransferGuest.connect(code, this.localLink, this.settings.connection, (text) => this.transferDialog.setStatus(text));
       this.transferGuest = guest;
-      guest.onStatus = (text) => this.transferDialog.setStatus(text);
       guest.onVerify = (words) => this.transferDialog.showWords(words, "guest");
       guest.onOffer = (offer) => void this.showOffer(offer);
       guest.onProgress = (item, done, total) => this.transferDialog.setProgress(item, done, total);
